@@ -376,7 +376,6 @@ public class EntryPoint {
         // 4. Generate run configurations and runtime files
         RunConfigProducer runConfigProducer = new RunConfigProducer(
             pathsManager.getRunConfigurationsDir(),
-            pathsManager.getProductsOutputDir(),
             pathsManager.getEclipseDepsDir(),
             config.getWorkspaceName()
         );

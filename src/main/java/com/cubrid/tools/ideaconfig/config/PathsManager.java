@@ -36,7 +36,6 @@ public class PathsManager {
     private Path modulesDir;
     private Path librariesDir;
     private Path runConfigurationsDir;
-    private Path productsOutputDir;
 
     public PathsManager(Path projectsFolder, Path outputDir, Path eclipseDepsDir, ProjectConfig config) {
         this.projectsFolder = projectsFolder.toAbsolutePath().normalize();
@@ -141,14 +140,12 @@ public class PathsManager {
         modulesDir = workspaceDir.resolve("modules");
         librariesDir = ideaConfigDir.resolve("libraries");
         runConfigurationsDir = ideaConfigDir.resolve("runConfigurations");
-        productsOutputDir = outputDir.resolve("products");
 
         log.debug("Output directories:");
         log.debug("  IDEA config: {}", ideaConfigDir);
         log.debug("  Modules: {}", modulesDir);
         log.debug("  Libraries: {}", librariesDir);
         log.debug("  Run configs: {}", runConfigurationsDir);
-        log.debug("  Products: {}", productsOutputDir);
     }
 
     /**
@@ -159,7 +156,6 @@ public class PathsManager {
         Files.createDirectories(modulesDir);
         Files.createDirectories(librariesDir);
         Files.createDirectories(runConfigurationsDir);
-        Files.createDirectories(productsOutputDir);
         log.info("Created output directories");
     }
 
@@ -299,10 +295,6 @@ public class PathsManager {
         return runConfigurationsDir;
     }
 
-    public Path getProductsOutputDir() {
-        return productsOutputDir;
-    }
-
     public Path getWorkspaceDir() {
         return outputDir.resolve(config.getWorkspaceName());
     }
@@ -329,12 +321,5 @@ public class PathsManager {
     public Path getRunConfigurationPath(String configName) {
         String safeName = configName.replaceAll("[^a-zA-Z0-9._-]", "_");
         return runConfigurationsDir.resolve(safeName + ".xml");
-    }
-
-    /**
-     * Get path for product output directory.
-     */
-    public Path getProductOutputPath(String productName) {
-        return productsOutputDir.resolve(productName);
     }
 }
