@@ -25,13 +25,11 @@ public class RunConfigProducer {
     private static final String EQUINOX_LAUNCHER_CLASS = "org.eclipse.equinox.launcher.Main";
 
     private final Path runConfigDir;
-    private final Path productsDir;
     private final Path eclipseDepsDir;
     private final String workspaceName;
 
-    public RunConfigProducer(Path runConfigDir, Path productsDir, Path eclipseDepsDir, String workspaceName) {
+    public RunConfigProducer(Path runConfigDir, Path eclipseDepsDir, String workspaceName) {
         this.runConfigDir = runConfigDir;
-        this.productsDir = productsDir;
         this.eclipseDepsDir = eclipseDepsDir;
         this.workspaceName = workspaceName;
     }
