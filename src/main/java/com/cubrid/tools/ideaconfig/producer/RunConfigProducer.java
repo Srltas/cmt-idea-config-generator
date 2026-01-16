@@ -114,6 +114,11 @@ public class RunConfigProducer {
         makeOption.setAttribute("enabled", "true");
         method.appendChild(makeOption);
 
+        // Shorten command line option (Java 9+)
+        Element shortenClasspath = doc.createElement("shortenClasspath");
+        shortenClasspath.setAttribute("name", "ARGS_FILE");
+        configuration.appendChild(shortenClasspath);
+
         // Write file
         XmlHelper.writeDocument(doc, configFile);
         log.debug("  Written: {}", configFile.getFileName());
@@ -124,19 +129,6 @@ public class RunConfigProducer {
      */
     private String buildVmParameters(Product product) {
         StringBuilder sb = new StringBuilder();
-
-        // Memory settings
-        sb.append("-Xms256m ");
-        sb.append("-Xmx2048m ");
-
-        // OSGi framework - explicit path to org.eclipse.osgi JAR using proper file URI
-        Path osgiFrameworkJar = findOsgiFramework();
-        if (osgiFrameworkJar != null) {
-            sb.append("-Dosgi.framework=").append(PathHelper.toFileUri(osgiFrameworkJar)).append(" ");
-        }
-
-        // OSGi configuration area
-        sb.append("-Dosgi.configuration.area=$PROJECT_DIR$/runtime/configuration ");
 
         // Development mode - use file: protocol
         sb.append("-Dosgi.dev=file:$PROJECT_DIR$/runtime/dev.properties ");
@@ -167,13 +159,6 @@ public class RunConfigProducer {
             sb.append(productVmArgs.trim()).append(" ");
         }
 
-        // macOS specific
-        String macVmArgs = product.getVmArgsMac();
-        if (macVmArgs != null && !macVmArgs.isBlank()) {
-            // On macOS, add these args
-            sb.append(macVmArgs.trim()).append(" ");
-        }
-
         return sb.toString().trim();
     }
 
@@ -182,21 +167,6 @@ public class RunConfigProducer {
      */
     private String buildProgramParameters(Product product) {
         StringBuilder sb = new StringBuilder();
-
-        // Application ID
-        String application = product.getApplication();
-        if (application != null && !application.isBlank()) {
-            sb.append("-application ").append(application).append(" ");
-        }
-
-        // Product ID
-        String productId = product.getUid();
-        if (productId == null || productId.isBlank()) {
-            productId = product.getId();
-        }
-        if (productId != null && !productId.isBlank()) {
-            sb.append("-product ").append(productId).append(" ");
-        }
 
         // Console log
         sb.append("-consoleLog ");
