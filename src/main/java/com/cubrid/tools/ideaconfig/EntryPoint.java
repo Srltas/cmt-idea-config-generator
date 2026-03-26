@@ -8,6 +8,7 @@ import com.cubrid.tools.ideaconfig.config.ProjectConfig;
 import com.cubrid.tools.ideaconfig.eclipse.BuildPropertiesParser;
 import com.cubrid.tools.ideaconfig.eclipse.FeatureParser;
 import com.cubrid.tools.ideaconfig.eclipse.ManifestParser;
+import com.cubrid.tools.ideaconfig.eclipse.PomDependencyParser;
 import com.cubrid.tools.ideaconfig.eclipse.ProductParser;
 import com.cubrid.tools.ideaconfig.model.Bundle;
 import com.cubrid.tools.ideaconfig.model.DependencyGraph;
@@ -44,6 +45,7 @@ public class EntryPoint {
     private final FeatureParser featureParser = new FeatureParser();
     private final ProductParser productParser = new ProductParser();
     private final BuildPropertiesParser buildPropertiesParser = new BuildPropertiesParser();
+    private final PomDependencyParser pomDependencyParser = new PomDependencyParser();
 
     // Parsed data
     private final List<Bundle> bundles = new ArrayList<>();
@@ -229,6 +231,17 @@ public class EntryPoint {
             try {
                 Bundle bundle = manifestParser.parseBundle(bundleDir);
                 buildPropertiesParser.parseForBundle(bundleDir, bundle);
+
+                // For standalone apps, parse pom.xml to discover dependencies
+                if (bundle.isStandaloneApp()) {
+                    List<String> pomDeps = pomDependencyParser.parseDependencyArtifactIds(bundleDir);
+                    for (String dep : pomDeps) {
+                        bundle.addPomDependencyArtifactId(dep);
+                    }
+                    log.info("  Standalone app: {} (main: {}, {} pom dependencies)",
+                        bundle.getSymbolicName(), bundle.getMainClass(), pomDeps.size());
+                }
+
                 bundles.add(bundle);
                 log.info("  Bundle: {} v{} ({} required bundles, {} source folders)",
                     bundle.getSymbolicName(),
@@ -357,6 +370,16 @@ public class EntryPoint {
             dependencyGraph,
             jdkVersion
         );
+
+        // Ensure Equinox launcher is available for Desktop run configuration.
+        // Add it only to the app module used by the Desktop run config (not all modules).
+        for (Product product : products) {
+            String appModuleName = findAppModuleName(orderedBundles, product);
+            if (appModuleName != null) {
+                imlProducer.addExtraExternalBundle(appModuleName, "org.eclipse.equinox.launcher");
+            }
+        }
+
         imlProducer.generateAll(orderedBundles);
 
         // 2. Generate modules.xml
@@ -390,6 +413,34 @@ public class EntryPoint {
         }
 
         log.info("Configuration generation completed");
+    }
+
+    /**
+     * Find the app module name for a product's Desktop run configuration.
+     * Mirrors the logic in RunConfigProducer.findAppModule().
+     */
+    private String findAppModuleName(List<Bundle> bundleList, Product product) {
+        String application = product.getApplication();
+        if (application != null && !application.isBlank()) {
+            String appBundleGuess = application;
+            if (application.endsWith(".application")) {
+                appBundleGuess = application.substring(0, application.length() - ".application".length());
+            }
+            for (Bundle b : bundleList) {
+                if (b.getSymbolicName().equals(appBundleGuess)) {
+                    return appBundleGuess;
+                }
+            }
+            for (Bundle b : bundleList) {
+                if (b.getSymbolicName().contains(".app")) {
+                    return b.getSymbolicName();
+                }
+            }
+        }
+        if (!bundleList.isEmpty()) {
+            return bundleList.get(bundleList.size() - 1).getSymbolicName();
+        }
+        return null;
     }
 
     // Getters for testing

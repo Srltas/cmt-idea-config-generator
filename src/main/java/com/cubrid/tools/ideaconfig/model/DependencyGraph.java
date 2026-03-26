@@ -25,6 +25,11 @@ public class DependencyGraph {
     // Resolved external bundles (from P2 repositories)
     private final Map<String, ExternalBundle> externalBundles = new LinkedHashMap<>();
 
+    // Fragment-Host mapping: host bundle -> list of fragment bundles
+    // In OSGi, fragments attach to a host bundle and provide classes/resources.
+    // In IDEA, fragments must be added as separate library references.
+    private final Map<String, Set<String>> fragmentsByHost = new HashMap<>();
+
     // Unresolved dependencies
     private final Set<UnresolvedDependency> unresolvedDependencies = new LinkedHashSet<>();
 
@@ -79,6 +84,12 @@ public class DependencyGraph {
      */
     public void addExternalBundle(ExternalBundle externalBundle) {
         externalBundles.put(externalBundle.getSymbolicName(), externalBundle);
+
+        // If this is a fragment, register it with its host
+        if (externalBundle.getFragmentHost() != null) {
+            fragmentsByHost.computeIfAbsent(externalBundle.getFragmentHost(), k -> new LinkedHashSet<>())
+                .add(externalBundle.getSymbolicName());
+        }
     }
 
     /**
@@ -346,6 +357,47 @@ public class DependencyGraph {
     }
 
     /**
+     * Get the transitive re-export closure for a set of external bundles.
+     * In OSGi, when bundle A re-exports bundle B (visibility:=reexport),
+     * any bundle that requires A also implicitly has access to B's exports.
+     * This method follows those re-export chains transitively.
+     *
+     * @param externalBundleNames initial set of external bundle names
+     * @return the expanded set including all re-exported bundles
+     */
+    public Set<String> getReExportClosure(Set<String> externalBundleNames) {
+        Set<String> result = new LinkedHashSet<>(externalBundleNames);
+        Queue<String> queue = new LinkedList<>(externalBundleNames);
+
+        while (!queue.isEmpty()) {
+            String current = queue.poll();
+            ExternalBundle ext = externalBundles.get(current);
+            if (ext == null) continue;
+
+            // Follow re-export chains
+            for (String reExported : ext.getReExportedBundles()) {
+                if (result.add(reExported)) {
+                    queue.add(reExported);
+                }
+            }
+
+            // Include OSGi fragments for this bundle.
+            // In OSGi, fragments attach to a host and provide actual classes
+            // (e.g., org.eclipse.swt.cocoa.macosx.aarch64 is a fragment of org.eclipse.swt
+            //  and contains all the actual SWT classes).
+            Set<String> fragments = fragmentsByHost.get(current);
+            if (fragments != null) {
+                for (String fragment : fragments) {
+                    result.add(fragment);
+                    // Don't queue fragments for further expansion - they don't re-export
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
      * Print the dependency graph for debugging.
      */
     public void printGraph() {
@@ -369,6 +421,8 @@ public class DependencyGraph {
         private final String version;
         private final java.nio.file.Path jarPath;
         private final List<String> exportedPackages = new ArrayList<>();
+        private final Set<String> reExportedBundles = new LinkedHashSet<>();
+        private String fragmentHost; // If this bundle is an OSGi fragment
 
         public ExternalBundle(String symbolicName, String version, java.nio.file.Path jarPath) {
             this.symbolicName = symbolicName;
@@ -394,6 +448,22 @@ public class DependencyGraph {
 
         public void addExportedPackage(String pkg) {
             exportedPackages.add(pkg);
+        }
+
+        public Set<String> getReExportedBundles() {
+            return reExportedBundles;
+        }
+
+        public void addReExportedBundle(String bundleName) {
+            reExportedBundles.add(bundleName);
+        }
+
+        public String getFragmentHost() {
+            return fragmentHost;
+        }
+
+        public void setFragmentHost(String fragmentHost) {
+            this.fragmentHost = fragmentHost;
         }
 
         @Override

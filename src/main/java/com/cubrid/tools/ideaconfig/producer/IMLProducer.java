@@ -12,9 +12,11 @@ import org.w3c.dom.Element;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -29,11 +31,26 @@ public class IMLProducer {
     private final DependencyGraph dependencyGraph;
     private final String jdkVersion;
 
+    // Extra external bundles that must be included for specific modules
+    // Key: module symbolic name, Value: set of external bundle names
+    // (e.g., org.eclipse.equinox.launcher for the app module)
+    private final Map<String, Set<String>> perModuleExtraExternalBundles = new HashMap<>();
+
     public IMLProducer(Path projectsFolder, Path modulesDir, DependencyGraph dependencyGraph, String jdkVersion) {
         this.projectsFolder = projectsFolder;
         this.modulesDir = modulesDir;
         this.dependencyGraph = dependencyGraph;
         this.jdkVersion = jdkVersion != null ? jdkVersion : "21";
+    }
+
+    /**
+     * Add an external bundle that should be included for a specific module.
+     *
+     * @param moduleName the module's symbolic name
+     * @param bundleName the external bundle to add
+     */
+    public void addExtraExternalBundle(String moduleName, String bundleName) {
+        perModuleExtraExternalBundles.computeIfAbsent(moduleName, k -> new HashSet<>()).add(bundleName);
     }
 
     /**
@@ -134,10 +151,24 @@ public class IMLProducer {
         component.appendChild(sourceEntry);
 
         // 3. Module dependencies (local bundles) - include transitive dependencies
-        Set<String> directDeps = dependencyGraph.getDependencies(moduleName);
-        Set<String> transitiveDeps = dependencyGraph.getTransitiveDependencies(moduleName);
-        Set<String> allDeps = new HashSet<>(directDeps);
-        allDeps.addAll(transitiveDeps);
+        //    For standalone apps (non-OSGi with Main-Class), use pom.xml dependencies
+        //    plus their transitive dependencies from the dependency graph
+        Set<String> allDeps;
+        if (bundle.isStandaloneApp() && !bundle.getPomDependencyArtifactIds().isEmpty()) {
+            allDeps = new HashSet<>();
+            for (String pomDep : bundle.getPomDependencyArtifactIds()) {
+                if (dependencyGraph.isLocalBundle(pomDep)) {
+                    allDeps.add(pomDep);
+                    // Also add transitive dependencies of each pom dependency
+                    allDeps.addAll(dependencyGraph.getTransitiveDependencies(pomDep));
+                }
+            }
+        } else {
+            Set<String> directDeps = dependencyGraph.getDependencies(moduleName);
+            Set<String> transitiveDeps = dependencyGraph.getTransitiveDependencies(moduleName);
+            allDeps = new HashSet<>(directDeps);
+            allDeps.addAll(transitiveDeps);
+        }
 
         for (String depName : allDeps) {
             if (dependencyGraph.isLocalBundle(depName)) {
@@ -149,20 +180,53 @@ public class IMLProducer {
             }
         }
 
-        // 4. ALL external bundles as library references
-        // This ensures all Eclipse/OSGi classes are available for compilation and runtime
-        Collection<DependencyGraph.ExternalBundle> externalBundles = dependencyGraph.getExternalBundles();
+        // 4. External bundles as library references
+        //    For ALL modules (both OSGi and standalone), include only the external
+        //    deps actually needed: direct + transitive from self and local deps,
+        //    expanded via re-export closure (e.g., org.eclipse.ui re-exports
+        //    org.eclipse.swt, org.eclipse.jface, org.eclipse.core.commands, etc.)
+        //    This keeps each module's classpath precise, preventing ServiceLoader
+        //    conflicts (like M2ELogbackConfigurator) from leaking across modules
+        //    via IDEA's transitive module dependency resolution.
         Set<String> addedLibraries = new HashSet<>();
+        Set<String> neededExternals = new HashSet<>();
 
-        for (DependencyGraph.ExternalBundle extBundle : externalBundles) {
-            String extName = extBundle.getSymbolicName();
-            if (!addedLibraries.contains(extName)) {
+        // Scan self + all local deps for external dependencies
+        Set<String> modulesToScan = new HashSet<>();
+        modulesToScan.add(moduleName);
+        for (String dep : allDeps) {
+            if (dependencyGraph.isLocalBundle(dep)) {
+                modulesToScan.add(dep);
+            }
+        }
+        for (String mod : modulesToScan) {
+            for (String dep : dependencyGraph.getDependencies(mod)) {
+                if (dependencyGraph.isExternalBundle(dep)) {
+                    neededExternals.add(dep);
+                }
+            }
+            for (String dep : dependencyGraph.getTransitiveDependencies(mod)) {
+                if (dependencyGraph.isExternalBundle(dep)) {
+                    neededExternals.add(dep);
+                }
+            }
+        }
+
+        // Add per-module extra external bundles (e.g., equinox launcher for app module only)
+        Set<String> moduleExtras = perModuleExtraExternalBundles.getOrDefault(moduleName, Collections.emptySet());
+        neededExternals.addAll(moduleExtras);
+
+        // Expand via re-export closure: if org.eclipse.ui re-exports org.eclipse.swt,
+        // org.eclipse.jface, etc., include those as well
+        neededExternals = dependencyGraph.getReExportClosure(neededExternals);
+
+        for (String extName : neededExternals) {
+            if (dependencyGraph.getExternalBundle(extName) != null && addedLibraries.add(extName)) {
                 Element libraryEntry = doc.createElement("orderEntry");
                 libraryEntry.setAttribute("type", "library");
                 libraryEntry.setAttribute("name", extName);
                 libraryEntry.setAttribute("level", "project");
                 component.appendChild(libraryEntry);
-                addedLibraries.add(extName);
             }
         }
 

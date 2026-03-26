@@ -102,7 +102,15 @@ public class BundleResolver {
                 String depName = req.getBundleName();
 
                 if (SYSTEM_BUNDLES.contains(depName)) {
-                    log.debug("  Skipping system bundle: {}", depName);
+                    // System bundles (org.eclipse.osgi, system.bundle) are the OSGi framework itself.
+                    // In OSGi runtime they're always available, but in IntelliJ IDEA (non-OSGi)
+                    // we need the JAR on the classpath, so treat them as external dependencies.
+                    if (isEclipsePlatformBundle(depName)) {
+                        addExternalDependency(bundleName, depName, req.getVersionRange(), req.isOptional());
+                        log.debug("  {} -> {} (system bundle, treated as external)", bundleName, depName);
+                    } else {
+                        log.debug("  Skipping system bundle: {}", depName);
+                    }
                     continue;
                 }
 
@@ -238,6 +246,13 @@ public class BundleResolver {
         }
     }
 
+    // Eclipse IDE tool bundles that are NOT needed by CMT runtime.
+    // These cause ServiceLoader conflicts (e.g., M2ELogbackConfigurator)
+    // when present on the classpath outside of a full Eclipse IDE environment.
+    private static final Set<String> EXCLUDED_BUNDLE_PREFIXES = Set.of(
+        "org.eclipse.m2e."
+    );
+
     /**
      * Register external bundles from a directory.
      * This is used to add pre-downloaded Eclipse dependencies.
@@ -252,18 +267,33 @@ public class BundleResolver {
 
         log.info("Scanning external bundles from: {}", dependencyDir);
 
+        int registered = 0;
+        int excluded = 0;
         try (var stream = java.nio.file.Files.walk(dependencyDir, 2)) {
-            stream.filter(p -> p.toString().endsWith(".jar"))
-                  .forEach(this::registerExternalJar);
+            var jars = stream.filter(p -> p.toString().endsWith(".jar")).toList();
+            for (Path jar : jars) {
+                if (registerExternalJar(jar)) {
+                    registered++;
+                } else {
+                    excluded++;
+                }
+            }
         } catch (Exception e) {
             log.warn("Failed to scan external bundles: {}", e.getMessage());
         }
+
+        log.info("Registered {} external bundles ({} excluded)", registered, excluded);
+
+        // After all JARs are registered, parse their manifests for re-export info
+        parseExternalBundleReExports();
     }
 
     /**
      * Register a single external JAR as an external bundle.
+     *
+     * @return true if registered, false if excluded
      */
-    private void registerExternalJar(Path jarPath) {
+    private boolean registerExternalJar(Path jarPath) {
         String fileName = jarPath.getFileName().toString();
         // Extract bundle name from JAR filename (e.g., org.eclipse.core.runtime_3.25.0.jar)
         String nameVersion = fileName.replace(".jar", "");
@@ -279,9 +309,106 @@ public class BundleResolver {
             version = null;
         }
 
+        // Filter out excluded bundles
+        for (String prefix : EXCLUDED_BUNDLE_PREFIXES) {
+            if (bundleName.startsWith(prefix)) {
+                log.debug("  Excluded bundle: {}", bundleName);
+                return false;
+            }
+        }
+
         ExternalBundle external = new ExternalBundle(bundleName, version, jarPath);
         graph.addExternalBundle(external);
         log.debug("  Registered external bundle: {} ({})", bundleName, version);
+        return true;
+    }
+
+    /**
+     * Parse MANIFEST.MF from registered external JAR bundles to discover
+     * Require-Bundle entries with visibility:=reexport.
+     * This enables accurate transitive dependency resolution in IntelliJ IDEA,
+     * which doesn't have OSGi's class loading mechanism.
+     */
+    private void parseExternalBundleReExports() {
+        log.info("Parsing external bundle manifests (re-exports and fragments)...");
+        int reExportCount = 0;
+        int fragmentCount = 0;
+
+        for (ExternalBundle ext : graph.getExternalBundles()) {
+            if (ext.getJarPath() == null) continue;
+
+            try (java.util.jar.JarFile jar = new java.util.jar.JarFile(ext.getJarPath().toFile())) {
+                java.util.jar.Manifest manifest = jar.getManifest();
+                if (manifest == null) continue;
+
+                var attrs = manifest.getMainAttributes();
+
+                // Parse Require-Bundle for visibility:=reexport
+                String requireBundle = attrs.getValue("Require-Bundle");
+                if (requireBundle != null) {
+                    List<String> reExports = parseReExports(requireBundle);
+                    for (String reExported : reExports) {
+                        ext.addReExportedBundle(reExported);
+                        reExportCount++;
+                    }
+                    if (!reExports.isEmpty()) {
+                        log.debug("  {} re-exports: {}", ext.getSymbolicName(), reExports);
+                    }
+                }
+
+                // Parse Fragment-Host: in OSGi, fragments attach to a host bundle
+                // and provide actual classes (e.g., org.eclipse.swt.cocoa.macosx.aarch64
+                // is a fragment of org.eclipse.swt and contains all SWT classes).
+                String fragmentHost = attrs.getValue("Fragment-Host");
+                if (fragmentHost != null) {
+                    // Fragment-Host format: hostBundle;bundle-version="[x,y)"
+                    int semiIdx = fragmentHost.indexOf(';');
+                    String hostName = semiIdx > 0 ? fragmentHost.substring(0, semiIdx).trim() : fragmentHost.trim();
+                    ext.setFragmentHost(hostName);
+                    // Re-register to update fragmentsByHost in graph
+                    graph.addExternalBundle(ext);
+                    fragmentCount++;
+                    log.debug("  {} is fragment of {}", ext.getSymbolicName(), hostName);
+                }
+            } catch (Exception e) {
+                log.debug("  Could not read manifest for {}: {}", ext.getSymbolicName(), e.getMessage());
+            }
+        }
+
+        log.info("Found {} re-export relationships and {} fragments among external bundles",
+            reExportCount, fragmentCount);
+    }
+
+    /**
+     * Parse a Require-Bundle header value and extract bundle names with visibility:=reexport.
+     *
+     * @param requireBundle the raw Require-Bundle header value
+     * @return list of bundle names that are re-exported
+     */
+    private List<String> parseReExports(String requireBundle) {
+        List<String> reExports = new ArrayList<>();
+
+        // Split by comma but respect quoted strings
+        // Require-Bundle entries are: bundleName;directive1:=value1;directive2:=value2
+        String[] entries = requireBundle.split(",(?=\\s*[a-zA-Z])");
+
+        for (String entry : entries) {
+            entry = entry.trim();
+            if (entry.isEmpty()) continue;
+
+            // Check if this entry has visibility:=reexport
+            if (!entry.contains("visibility:=reexport")) continue;
+
+            // Extract bundle name (before first semicolon)
+            int semiIdx = entry.indexOf(';');
+            String bundleName = semiIdx > 0 ? entry.substring(0, semiIdx).trim() : entry.trim();
+
+            if (!bundleName.isEmpty()) {
+                reExports.add(bundleName);
+            }
+        }
+
+        return reExports;
     }
 
     /**

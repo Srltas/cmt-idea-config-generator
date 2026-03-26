@@ -34,6 +34,12 @@ public class Bundle {
     // Additional libraries from Bundle-ClassPath
     private final List<String> embeddedLibraries = new ArrayList<>();
 
+    // Main-Class for standalone (non-OSGi) applications
+    private String mainClass;
+
+    // Maven pom.xml dependency artifactIds (for standalone apps)
+    private final List<String> pomDependencyArtifactIds = new ArrayList<>();
+
     public Bundle(String symbolicName, String version, Path location) {
         this.symbolicName = Objects.requireNonNull(symbolicName, "symbolicName is required");
         this.version = version != null ? version : "0.0.0";
@@ -180,6 +186,35 @@ public class Bundle {
         if (library != null && !library.isBlank() && !".".equals(library.trim())) {
             embeddedLibraries.add(library.trim());
         }
+    }
+
+    // Main class (standalone apps)
+
+    public String getMainClass() {
+        return mainClass;
+    }
+
+    public void setMainClass(String mainClass) {
+        this.mainClass = mainClass;
+    }
+
+    // POM dependency artifactIds (standalone apps)
+
+    public List<String> getPomDependencyArtifactIds() {
+        return Collections.unmodifiableList(pomDependencyArtifactIds);
+    }
+
+    public void addPomDependencyArtifactId(String artifactId) {
+        if (artifactId != null && !artifactId.isBlank()) {
+            pomDependencyArtifactIds.add(artifactId.trim());
+        }
+    }
+
+    /**
+     * Check if this bundle is a standalone application (has Main-Class, not an OSGi bundle).
+     */
+    public boolean isStandaloneApp() {
+        return mainClass != null && !mainClass.isBlank();
     }
 
     // Utility methods

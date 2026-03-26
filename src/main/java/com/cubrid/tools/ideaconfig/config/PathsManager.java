@@ -8,7 +8,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -166,18 +168,25 @@ public class PathsManager {
      */
     public List<Path> findBundleDirectories() throws IOException {
         List<Path> bundles = new ArrayList<>();
+        Set<Path> seen = new HashSet<>();
 
         for (Path bundlesPath : bundlesPaths) {
             try (Stream<Path> stream = Files.list(bundlesPath)) {
                 stream.filter(Files::isDirectory)
                       .filter(this::isBundleDirectory)
-                      .forEach(bundles::add);
+                      .forEach(dir -> {
+                          Path normalized = dir.toAbsolutePath().normalize();
+                          if (seen.add(normalized)) {
+                              bundles.add(dir);
+                          }
+                      });
             }
         }
 
-        // Add additional module roots
+        // Add additional module roots (skip duplicates already found in bundle paths)
         for (Path modulePath : additionalModuleRoots) {
-            if (isBundleDirectory(modulePath)) {
+            Path normalized = modulePath.toAbsolutePath().normalize();
+            if (isBundleDirectory(modulePath) && seen.add(normalized)) {
                 bundles.add(modulePath);
             }
         }

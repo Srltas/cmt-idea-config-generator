@@ -35,22 +35,32 @@ public class RunConfigProducer {
     }
 
     /**
-     * Generate run configurations for all products.
+     * Generate run configurations for all products and standalone apps.
      *
      * @param products the products
      * @param bundles the local bundles
      * @throws IOException if file writing fails
      */
     public void generateAll(List<Product> products, List<Bundle> bundles) throws IOException {
-        log.info("Generating run configurations for {} products", products.size());
-
         Files.createDirectories(runConfigDir);
 
+        int count = 0;
+
+        // Generate Desktop (OSGi) run configurations
         for (Product product : products) {
             generateRunConfig(product, bundles);
+            count++;
         }
 
-        log.info("Generated {} run configurations in {}", products.size(), runConfigDir);
+        // Generate Console (standalone) run configurations
+        for (Bundle bundle : bundles) {
+            if (bundle.isStandaloneApp()) {
+                generateConsoleRunConfig(bundle);
+                count++;
+            }
+        }
+
+        log.info("Generated {} run configurations in {}", count, runConfigDir);
     }
 
     /**
@@ -125,7 +135,72 @@ public class RunConfigProducer {
     }
 
     /**
+     * Generate a run configuration for a standalone (non-OSGi) console application.
+     *
+     * @param consoleBundle the bundle with Main-Class
+     * @throws IOException if file writing fails
+     */
+    public void generateConsoleRunConfig(Bundle consoleBundle) throws IOException {
+        String configName = "CMT Console";
+        String safeFileName = "CMT_Console";
+        Path configFile = runConfigDir.resolve(safeFileName + ".xml");
+
+        log.info("Generating Console run configuration: {} (main: {})",
+            configName, consoleBundle.getMainClass());
+
+        Document doc = XmlHelper.createDocument();
+
+        // Root component element
+        Element component = doc.createElement("component");
+        component.setAttribute("name", "ProjectRunConfigurationManager");
+        doc.appendChild(component);
+
+        // Configuration element
+        Element configuration = doc.createElement("configuration");
+        configuration.setAttribute("default", "false");
+        configuration.setAttribute("name", configName);
+        configuration.setAttribute("type", "Application");
+        configuration.setAttribute("factoryName", "Application");
+        component.appendChild(configuration);
+
+        // Main class - from MANIFEST.MF Main-Class header
+        addOption(configuration, "MAIN_CLASS_NAME", consoleBundle.getMainClass());
+
+        // VM parameters - basic memory settings only (no OSGi)
+        addOption(configuration, "VM_PARAMETERS", "-Xms512M -Xmx2048M");
+
+        // Working directory
+        addOption(configuration, "WORKING_DIRECTORY", "$PROJECT_DIR$");
+
+        // Module
+        Element module = doc.createElement("module");
+        module.setAttribute("name", consoleBundle.getSymbolicName());
+        configuration.appendChild(module);
+
+        // Method element (before launch tasks)
+        Element method = doc.createElement("method");
+        method.setAttribute("v", "2");
+        configuration.appendChild(method);
+
+        // Make option
+        Element makeOption = doc.createElement("option");
+        makeOption.setAttribute("name", "Make");
+        makeOption.setAttribute("enabled", "true");
+        method.appendChild(makeOption);
+
+        // Shorten command line option (Java 9+)
+        Element shortenClasspath = doc.createElement("shortenClasspath");
+        shortenClasspath.setAttribute("name", "ARGS_FILE");
+        configuration.appendChild(shortenClasspath);
+
+        // Write file
+        XmlHelper.writeDocument(doc, configFile);
+        log.debug("  Written: {}", configFile.getFileName());
+    }
+
+    /**
      * Build VM parameters for the product.
+     * Includes platform-specific args for the current OS.
      */
     private String buildVmParameters(Product product) {
         StringBuilder sb = new StringBuilder();
@@ -147,19 +222,24 @@ public class RunConfigProducer {
             }
         }
 
-        // Splash screen
-        String splashLocation = product.getSplashLocation();
-        if (splashLocation != null && !splashLocation.isBlank()) {
-            sb.append("-Dosgi.splashPath=$PROJECT_DIR$/").append(splashLocation).append(" ");
-        }
-
-        // Product-specific VM args
-        String productVmArgs = product.getVmArgs();
-        if (productVmArgs != null && !productVmArgs.isBlank()) {
-            sb.append(productVmArgs.trim()).append(" ");
+        // Product-specific VM args (cross-platform + current platform)
+        String currentOs = detectCurrentOs();
+        String combinedVmArgs = product.getCombinedVmArgs(currentOs);
+        if (combinedVmArgs != null && !combinedVmArgs.isBlank()) {
+            sb.append(combinedVmArgs.trim()).append(" ");
         }
 
         return sb.toString().trim();
+    }
+
+    /**
+     * Detect the current operating system for platform-specific arguments.
+     */
+    private static String detectCurrentOs() {
+        String os = System.getProperty("os.name", "").toLowerCase();
+        if (os.contains("mac")) return "macosx";
+        if (os.contains("win")) return "windows";
+        return "linux";
     }
 
     /**
@@ -347,11 +427,9 @@ public class RunConfigProducer {
             sb.append("eclipse.application=").append(application).append("\n");
         }
 
-        // Product
-        String productId = product.getUid();
-        if (productId == null || productId.isBlank()) {
-            productId = product.getId();
-        }
+        // Product - use 'id' attribute (e.g., com.cubrid.cubridmigration.app.product)
+        // not 'uid' which is just an internal identifier
+        String productId = product.getId();
         if (productId != null && !productId.isBlank()) {
             sb.append("eclipse.product=").append(productId).append("\n");
         }
@@ -421,6 +499,7 @@ public class RunConfigProducer {
 
         try (var stream = Files.list(eclipseDepsDir)) {
             stream.filter(p -> !p.getFileName().toString().contains(".source"))  // Skip source bundles
+                  .filter(p -> !p.getFileName().toString().startsWith("org.eclipse.m2e."))  // Skip m2e (IDE-only)
                   .filter(p -> p.toString().endsWith(".jar") || Files.isDirectory(p))  // JARs and directories
                   .sorted()
                   .forEach(bundlePath -> {

@@ -131,7 +131,7 @@ class ManifestParserTest {
     }
 
     @Test
-    void testParseMissingSymbolicName() throws IOException {
+    void testParseMissingSymbolicNameFallsBackToDirectoryName() throws IOException {
         Path manifestFile = metaInfDir.resolve("MANIFEST.MF");
         Files.writeString(manifestFile, """
             Manifest-Version: 1.0
@@ -139,9 +139,29 @@ class ManifestParserTest {
             Bundle-Version: 1.0.0
             """);
 
-        assertThatThrownBy(() -> parser.parseBundle(bundleDir))
-            .isInstanceOf(IOException.class)
-            .hasMessageContaining("Bundle-SymbolicName");
+        Bundle bundle = parser.parseBundle(bundleDir);
+
+        // Falls back to directory name when Bundle-SymbolicName is missing
+        assertThat(bundle.getSymbolicName()).isEqualTo(bundleDir.getFileName().toString());
+        assertThat(bundle.getVersion()).isEqualTo("1.0.0");
+        assertThat(bundle.isStandaloneApp()).isFalse();
+    }
+
+    @Test
+    void testParseMainClass() throws IOException {
+        Path manifestFile = metaInfDir.resolve("MANIFEST.MF");
+        Files.writeString(manifestFile, """
+            Manifest-Version: 1.0
+            Bundle-Name: Test Command
+            Bundle-Version: 1.0.0
+            Main-Class: com.example.command.Main
+            """);
+
+        Bundle bundle = parser.parseBundle(bundleDir);
+
+        assertThat(bundle.getSymbolicName()).isEqualTo(bundleDir.getFileName().toString());
+        assertThat(bundle.getMainClass()).isEqualTo("com.example.command.Main");
+        assertThat(bundle.isStandaloneApp()).isTrue();
     }
 
     @Test

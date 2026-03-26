@@ -37,6 +37,7 @@ public class ManifestParser {
     private static final String IMPORT_PACKAGE = "Import-Package";
     private static final String EXPORT_PACKAGE = "Export-Package";
     private static final String FRAGMENT_HOST = "Fragment-Host";
+    private static final String MAIN_CLASS = "Main-Class";
 
     // Pattern to extract directives like ;singleton:=true or ;bundle-version="[1.0,2.0)"
     // Handles both quoted and unquoted values
@@ -59,14 +60,17 @@ public class ManifestParser {
 
         Map<String, String> headers = parseHeaders(manifestFile);
 
-        // Extract symbolic name (required)
+        // Extract symbolic name (fall back to directory name for non-OSGi modules)
         String symbolicNameRaw = headers.get(BUNDLE_SYMBOLIC_NAME);
-        if (symbolicNameRaw == null || symbolicNameRaw.isBlank()) {
-            throw new IOException("Missing Bundle-SymbolicName in " + manifestFile);
+        SymbolicNameInfo nameInfo;
+        if (symbolicNameRaw != null && !symbolicNameRaw.isBlank()) {
+            nameInfo = parseSymbolicName(symbolicNameRaw);
+        } else {
+            // Non-OSGi module: use directory name as symbolic name
+            nameInfo = new SymbolicNameInfo();
+            nameInfo.name = bundleDir.getFileName().toString();
+            log.info("No Bundle-SymbolicName found, using directory name: {}", nameInfo.name);
         }
-
-        // Parse symbolic name and directives
-        SymbolicNameInfo nameInfo = parseSymbolicName(symbolicNameRaw);
 
         // Create bundle
         Bundle bundle = new Bundle(
@@ -76,6 +80,13 @@ public class ManifestParser {
         );
 
         bundle.setSingleton(nameInfo.singleton);
+
+        // Parse Main-Class (standalone application entry point)
+        String mainClass = headers.get(MAIN_CLASS);
+        if (mainClass != null && !mainClass.isBlank()) {
+            bundle.setMainClass(mainClass.trim());
+            log.info("Found standalone app main class: {}", mainClass.trim());
+        }
         bundle.setName(headers.get(BUNDLE_NAME));
         bundle.setVendor(headers.get(BUNDLE_VENDOR));
         bundle.setActivator(headers.get(BUNDLE_ACTIVATOR));
