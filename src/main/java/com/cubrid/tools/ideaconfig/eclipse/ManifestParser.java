@@ -311,10 +311,8 @@ public class ManifestParser {
         while (matcher.find()) {
             String key = matcher.group(1).trim();
             String value = extractDirectiveValue(matcher);
-
-            switch (key) {
-                case "version" -> pi.setVersionRange(value);
-                case "resolution" -> pi.setOptional("optional".equals(value));
+            if ("resolution".equals(key)) {
+                pi.setOptional("optional".equals(value));
             }
         }
 

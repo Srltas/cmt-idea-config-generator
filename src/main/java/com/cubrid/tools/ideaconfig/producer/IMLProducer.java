@@ -2,6 +2,8 @@ package com.cubrid.tools.ideaconfig.producer;
 
 import com.cubrid.tools.ideaconfig.model.Bundle;
 import com.cubrid.tools.ideaconfig.model.DependencyGraph;
+import com.cubrid.tools.ideaconfig.model.TestModule;
+import com.cubrid.tools.ideaconfig.model.TestModule.SourceFolder;
 import com.cubrid.tools.ideaconfig.util.VersionHelper;
 import com.cubrid.tools.ideaconfig.util.XmlHelper;
 import org.slf4j.Logger;
@@ -20,178 +22,146 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Produces IntelliJ IDEA .iml module files for Eclipse bundles.
+ * Produces IntelliJ IDEA .iml module files for Eclipse bundles and test modules.
  */
 public class IMLProducer {
 
     private static final Logger log = LoggerFactory.getLogger(IMLProducer.class);
 
-    private final Path projectsFolder;
     private final Path modulesDir;
     private final DependencyGraph dependencyGraph;
     private final String jdkVersion;
 
-    // Extra external bundles that must be included for specific modules
-    // Key: module symbolic name, Value: set of external bundle names
-    // (e.g., org.eclipse.equinox.launcher for the app module)
+    // Per-module extra external bundles (e.g., org.eclipse.equinox.launcher
+    // for the app module that the Desktop run config targets).
     private final Map<String, Set<String>> perModuleExtraExternalBundles = new HashMap<>();
 
-    public IMLProducer(Path projectsFolder, Path modulesDir, DependencyGraph dependencyGraph, String jdkVersion) {
-        this.projectsFolder = projectsFolder;
+    public IMLProducer(Path modulesDir, DependencyGraph dependencyGraph, String jdkVersion) {
         this.modulesDir = modulesDir;
         this.dependencyGraph = dependencyGraph;
         this.jdkVersion = jdkVersion != null ? jdkVersion : "21";
     }
 
-    /**
-     * Add an external bundle that should be included for a specific module.
-     *
-     * @param moduleName the module's symbolic name
-     * @param bundleName the external bundle to add
-     */
     public void addExtraExternalBundle(String moduleName, String bundleName) {
         perModuleExtraExternalBundles.computeIfAbsent(moduleName, k -> new HashSet<>()).add(bundleName);
     }
 
-    /**
-     * Generate .iml files for all bundles.
-     *
-     * @param bundles the bundles to generate .iml files for
-     * @throws IOException if file writing fails
-     */
     public void generateAll(List<Bundle> bundles) throws IOException {
         log.info("Generating .iml files for {} bundles", bundles.size());
-
         Files.createDirectories(modulesDir);
-
         for (Bundle bundle : bundles) {
-            generateIML(bundle);
+            generateBundleIml(bundle);
         }
-
         log.info("Generated {} .iml files in {}", bundles.size(), modulesDir);
     }
 
-    /**
-     * Generate a single .iml file for a bundle.
-     *
-     * @param bundle the bundle
-     * @throws IOException if file writing fails
-     */
-    public void generateIML(Bundle bundle) throws IOException {
+    public void generateTestModules(List<TestModule> testModules) throws IOException {
+        if (testModules.isEmpty()) {
+            return;
+        }
+        log.info("Generating .iml files for {} test modules", testModules.size());
+        Files.createDirectories(modulesDir);
+        for (TestModule module : testModules) {
+            generateTestModuleIml(module);
+        }
+    }
+
+    private void generateBundleIml(Bundle bundle) throws IOException {
         String moduleName = bundle.getSymbolicName();
         Path imlFile = modulesDir.resolve(moduleName + ".iml");
 
-        log.debug("Generating .iml for {}", moduleName);
-
         Document doc = XmlHelper.createDocument();
-
-        // Root module element
         Element module = doc.createElement("module");
         module.setAttribute("type", "JAVA_MODULE");
         module.setAttribute("version", "4");
         doc.appendChild(module);
 
-        // Component: NewModuleRootManager
         Element component = doc.createElement("component");
         component.setAttribute("name", "NewModuleRootManager");
         component.setAttribute("LANGUAGE_LEVEL", VersionHelper.toIdeaLanguageLevel(jdkVersion));
         module.appendChild(component);
 
-        // Content root - calculate bundle path first
-        Path bundleDir = bundle.getLocation();
-        String bundleRelPath = getRelativePath(bundleDir);
+        String bundleRelPath = relativizeFromModulesDir(bundle.getLocation());
 
-        // Output paths - point to bundle's bin folder
         String outputFolder = bundle.getOutputFolder();
         if (outputFolder == null || outputFolder.isBlank()) {
             outputFolder = "bin";
         }
-        String outputPath = "file://$MODULE_DIR$/" + bundleRelPath + "/" + outputFolder;
+        String outputUrl = "file://$MODULE_DIR$/" + bundleRelPath + "/" + outputFolder;
 
-        Element output = doc.createElement("output");
-        output.setAttribute("url", outputPath);
-        component.appendChild(output);
+        appendOutput(doc, component, outputUrl);
 
-        Element outputTest = doc.createElement("output-test");
-        outputTest.setAttribute("url", outputPath);
-        component.appendChild(outputTest);
-
-        // Exclude output
-        Element excludeOutput = doc.createElement("exclude-output");
-        component.appendChild(excludeOutput);
-
-        // Content root
         Element content = doc.createElement("content");
         content.setAttribute("url", "file://$MODULE_DIR$/" + bundleRelPath);
         component.appendChild(content);
 
-        // Source folders
         for (String sourceFolder : bundle.getSourceFolders()) {
             Element sourceRoot = doc.createElement("sourceFolder");
             sourceRoot.setAttribute("url", "file://$MODULE_DIR$/" + bundleRelPath + "/" + sourceFolder);
             sourceRoot.setAttribute("isTestSource", "false");
             content.appendChild(sourceRoot);
         }
+        appendExcludeFolder(content, bundleRelPath, "target");
+        appendExcludeFolder(content, bundleRelPath, "bin");
 
-        // Exclude folders (target, bin)
-        addExcludeFolder(content, bundleRelPath, "target");
-        addExcludeFolder(content, bundleRelPath, "bin");
+        appendInheritedJdk(doc, component);
+        appendSourceOrderEntry(doc, component);
 
-        // Order entries
+        // Module dependencies (local bundles) — direct + transitive.
+        // Standalone apps (Main-Class, no Require-Bundle) use pom.xml deps instead.
+        Set<String> allDeps = computeAllDependencies(bundle, moduleName);
+        for (String depName : allDeps) {
+            if (dependencyGraph.isLocalBundle(depName)) {
+                Element entry = doc.createElement("orderEntry");
+                entry.setAttribute("type", "module");
+                entry.setAttribute("module-name", depName);
+                entry.setAttribute("exported", "");
+                component.appendChild(entry);
+            }
+        }
 
-        // 1. Inherited JDK
-        Element inheritedJdk = doc.createElement("orderEntry");
-        inheritedJdk.setAttribute("type", "inheritedJdk");
-        component.appendChild(inheritedJdk);
+        // External bundles, expanded via re-export closure to catch
+        // org.eclipse.ui -> swt/jface/etc.; per-module extras (equinox launcher) added too.
+        Set<String> neededExternals = collectNeededExternals(moduleName, allDeps);
+        Set<String> added = new HashSet<>();
+        for (String extName : neededExternals) {
+            if (dependencyGraph.getExternalBundle(extName) != null && added.add(extName)) {
+                Element entry = doc.createElement("orderEntry");
+                entry.setAttribute("type", "library");
+                entry.setAttribute("name", extName);
+                entry.setAttribute("level", "project");
+                component.appendChild(entry);
+            }
+        }
 
-        // 2. Source folder
-        Element sourceEntry = doc.createElement("orderEntry");
-        sourceEntry.setAttribute("type", "sourceFolder");
-        sourceEntry.setAttribute("forTests", "false");
-        component.appendChild(sourceEntry);
+        // Embedded libraries from Bundle-ClassPath
+        for (String embeddedLib : bundle.getEmbeddedLibraries()) {
+            appendModuleLibrary(doc, component,
+                "jar://$MODULE_DIR$/" + bundleRelPath + "/" + embeddedLib + "!/", null);
+        }
 
-        // 3. Module dependencies (local bundles) - include transitive dependencies
-        //    For standalone apps (non-OSGi with Main-Class), use pom.xml dependencies
-        //    plus their transitive dependencies from the dependency graph
-        Set<String> allDeps;
+        XmlHelper.writeDocument(doc, imlFile);
+        log.debug("  Written: {}", imlFile.getFileName());
+    }
+
+    private Set<String> computeAllDependencies(Bundle bundle, String moduleName) {
+        Set<String> allDeps = new HashSet<>();
         if (bundle.isStandaloneApp() && !bundle.getPomDependencyArtifactIds().isEmpty()) {
-            allDeps = new HashSet<>();
             for (String pomDep : bundle.getPomDependencyArtifactIds()) {
                 if (dependencyGraph.isLocalBundle(pomDep)) {
                     allDeps.add(pomDep);
-                    // Also add transitive dependencies of each pom dependency
                     allDeps.addAll(dependencyGraph.getTransitiveDependencies(pomDep));
                 }
             }
         } else {
-            Set<String> directDeps = dependencyGraph.getDependencies(moduleName);
-            Set<String> transitiveDeps = dependencyGraph.getTransitiveDependencies(moduleName);
-            allDeps = new HashSet<>(directDeps);
-            allDeps.addAll(transitiveDeps);
+            allDeps.addAll(dependencyGraph.getDependencies(moduleName));
+            allDeps.addAll(dependencyGraph.getTransitiveDependencies(moduleName));
         }
+        return allDeps;
+    }
 
-        for (String depName : allDeps) {
-            if (dependencyGraph.isLocalBundle(depName)) {
-                Element moduleEntry = doc.createElement("orderEntry");
-                moduleEntry.setAttribute("type", "module");
-                moduleEntry.setAttribute("module-name", depName);
-                moduleEntry.setAttribute("exported", "");
-                component.appendChild(moduleEntry);
-            }
-        }
-
-        // 4. External bundles as library references
-        //    For ALL modules (both OSGi and standalone), include only the external
-        //    deps actually needed: direct + transitive from self and local deps,
-        //    expanded via re-export closure (e.g., org.eclipse.ui re-exports
-        //    org.eclipse.swt, org.eclipse.jface, org.eclipse.core.commands, etc.)
-        //    This keeps each module's classpath precise, preventing ServiceLoader
-        //    conflicts (like M2ELogbackConfigurator) from leaking across modules
-        //    via IDEA's transitive module dependency resolution.
-        Set<String> addedLibraries = new HashSet<>();
-        Set<String> neededExternals = new HashSet<>();
-
-        // Scan self + all local deps for external dependencies
+    private Set<String> collectNeededExternals(String moduleName, Set<String> allDeps) {
+        Set<String> needed = new HashSet<>();
         Set<String> modulesToScan = new HashSet<>();
         modulesToScan.add(moduleName);
         for (String dep : allDeps) {
@@ -201,82 +171,142 @@ public class IMLProducer {
         }
         for (String mod : modulesToScan) {
             for (String dep : dependencyGraph.getDependencies(mod)) {
-                if (dependencyGraph.isExternalBundle(dep)) {
-                    neededExternals.add(dep);
-                }
+                if (dependencyGraph.isExternalBundle(dep)) needed.add(dep);
             }
             for (String dep : dependencyGraph.getTransitiveDependencies(mod)) {
-                if (dependencyGraph.isExternalBundle(dep)) {
-                    neededExternals.add(dep);
-                }
+                if (dependencyGraph.isExternalBundle(dep)) needed.add(dep);
             }
         }
+        needed.addAll(perModuleExtraExternalBundles.getOrDefault(moduleName, Collections.emptySet()));
+        return dependencyGraph.getReExportClosure(needed);
+    }
 
-        // Add per-module extra external bundles (e.g., equinox launcher for app module only)
-        Set<String> moduleExtras = perModuleExtraExternalBundles.getOrDefault(moduleName, Collections.emptySet());
-        neededExternals.addAll(moduleExtras);
+    private void generateTestModuleIml(TestModule testModule) throws IOException {
+        String moduleName = testModule.getName();
+        Path imlFile = modulesDir.resolve(moduleName + ".iml");
 
-        // Expand via re-export closure: if org.eclipse.ui re-exports org.eclipse.swt,
-        // org.eclipse.jface, etc., include those as well
-        neededExternals = dependencyGraph.getReExportClosure(neededExternals);
+        Document doc = XmlHelper.createDocument();
+        Element module = doc.createElement("module");
+        module.setAttribute("type", "JAVA_MODULE");
+        module.setAttribute("version", "4");
+        doc.appendChild(module);
 
-        for (String extName : neededExternals) {
-            if (dependencyGraph.getExternalBundle(extName) != null && addedLibraries.add(extName)) {
-                Element libraryEntry = doc.createElement("orderEntry");
-                libraryEntry.setAttribute("type", "library");
-                libraryEntry.setAttribute("name", extName);
-                libraryEntry.setAttribute("level", "project");
-                component.appendChild(libraryEntry);
+        Element component = doc.createElement("component");
+        component.setAttribute("name", "NewModuleRootManager");
+        component.setAttribute("LANGUAGE_LEVEL", VersionHelper.toIdeaLanguageLevel(jdkVersion));
+        component.setAttribute("inherit-compiler-output", "false");
+        module.appendChild(component);
+
+        String moduleRelPath = relativizeFromModulesDir(testModule.getLocation());
+        String outputUrl = "file://$MODULE_DIR$/" + moduleRelPath + "/target/classes";
+        String testOutputUrl = "file://$MODULE_DIR$/" + moduleRelPath + "/target/test-classes";
+
+        Element output = doc.createElement("output");
+        output.setAttribute("url", outputUrl);
+        component.appendChild(output);
+        Element outputTest = doc.createElement("output-test");
+        outputTest.setAttribute("url", testOutputUrl);
+        component.appendChild(outputTest);
+        component.appendChild(doc.createElement("exclude-output"));
+
+        Element content = doc.createElement("content");
+        content.setAttribute("url", "file://$MODULE_DIR$/" + moduleRelPath);
+        component.appendChild(content);
+
+        for (SourceFolder folder : testModule.getSourceFolders()) {
+            Element src = doc.createElement("sourceFolder");
+            src.setAttribute("url",
+                "file://$MODULE_DIR$/" + moduleRelPath + "/" + folder.relativePath());
+            if (folder.isResource()) {
+                src.setAttribute("type",
+                    folder.isTestSource() ? "java-test-resource" : "java-resource");
+            } else {
+                src.setAttribute("isTestSource", String.valueOf(folder.isTestSource()));
             }
+            content.appendChild(src);
+        }
+        appendExcludeFolder(content, moduleRelPath, "target");
+
+        appendInheritedJdk(doc, component);
+        appendSourceOrderEntry(doc, component);
+
+        for (String dep : testModule.getLocalModuleDependencies()) {
+            Element entry = doc.createElement("orderEntry");
+            entry.setAttribute("type", "module");
+            entry.setAttribute("module-name", dep);
+            entry.setAttribute("scope", "TEST");
+            component.appendChild(entry);
         }
 
-        // 5. Embedded libraries (Bundle-ClassPath JARs)
-        for (String embeddedLib : bundle.getEmbeddedLibraries()) {
-            Element libEntry = doc.createElement("orderEntry");
-            libEntry.setAttribute("type", "module-library");
-            component.appendChild(libEntry);
-
-            Element library = doc.createElement("library");
-            libEntry.appendChild(library);
-
-            Element classes = doc.createElement("CLASSES");
-            library.appendChild(classes);
-
-            Element root = doc.createElement("root");
-            root.setAttribute("url", "jar://$MODULE_DIR$/" + bundleRelPath + "/" + embeddedLib + "!/");
-            classes.appendChild(root);
-
-            Element javadoc = doc.createElement("JAVADOC");
-            library.appendChild(javadoc);
-
-            Element sources = doc.createElement("SOURCES");
-            library.appendChild(sources);
+        for (Path jarPath : testModule.getExternalLibraries()) {
+            String jarUrl = "jar://" + jarPath.toAbsolutePath().toString().replace('\\', '/') + "!/";
+            appendModuleLibrary(doc, component, jarUrl, "TEST");
         }
 
-        // Write file
         XmlHelper.writeDocument(doc, imlFile);
-        log.debug("  Written: {}", imlFile.getFileName());
+        log.debug("  Written test module .iml: {}", imlFile.getFileName());
     }
 
-    /**
-     * Get the relative path from modules directory to the bundle.
-     */
-    private String getRelativePath(Path bundleDir) {
+    private String relativizeFromModulesDir(Path target) {
         try {
-            Path relativePath = modulesDir.relativize(bundleDir);
-            return relativePath.toString().replace('\\', '/');
+            return modulesDir.relativize(target).toString().replace('\\', '/');
         } catch (IllegalArgumentException e) {
-            // Paths on different roots, use absolute path
-            return bundleDir.toAbsolutePath().toString().replace('\\', '/');
+            return target.toAbsolutePath().toString().replace('\\', '/');
         }
     }
 
-    /**
-     * Add an exclude folder element.
-     */
-    private void addExcludeFolder(Element content, String bundleRelPath, String folderName) {
+    private static void appendOutput(Document doc, Element component, String outputUrl) {
+        Element output = doc.createElement("output");
+        output.setAttribute("url", outputUrl);
+        component.appendChild(output);
+        Element outputTest = doc.createElement("output-test");
+        outputTest.setAttribute("url", outputUrl);
+        component.appendChild(outputTest);
+        component.appendChild(doc.createElement("exclude-output"));
+    }
+
+    private static void appendInheritedJdk(Document doc, Element component) {
+        Element entry = doc.createElement("orderEntry");
+        entry.setAttribute("type", "inheritedJdk");
+        component.appendChild(entry);
+    }
+
+    private static void appendSourceOrderEntry(Document doc, Element component) {
+        Element entry = doc.createElement("orderEntry");
+        entry.setAttribute("type", "sourceFolder");
+        entry.setAttribute("forTests", "false");
+        component.appendChild(entry);
+    }
+
+    private static void appendExcludeFolder(Element content, String relPath, String folder) {
         Element exclude = content.getOwnerDocument().createElement("excludeFolder");
-        exclude.setAttribute("url", "file://$MODULE_DIR$/" + bundleRelPath + "/" + folderName);
+        exclude.setAttribute("url", "file://$MODULE_DIR$/" + relPath + "/" + folder);
         content.appendChild(exclude);
+    }
+
+    /**
+     * Append a module-level library (used for embedded JARs and TEST jars).
+     * If scope is non-null, sets it on the orderEntry.
+     */
+    private static void appendModuleLibrary(Document doc, Element component,
+                                            String classesJarUrl, String scope) {
+        Element entry = doc.createElement("orderEntry");
+        entry.setAttribute("type", "module-library");
+        if (scope != null) {
+            entry.setAttribute("scope", scope);
+        }
+        component.appendChild(entry);
+
+        Element library = doc.createElement("library");
+        entry.appendChild(library);
+
+        Element classes = doc.createElement("CLASSES");
+        library.appendChild(classes);
+        Element root = doc.createElement("root");
+        root.setAttribute("url", classesJarUrl);
+        classes.appendChild(root);
+
+        library.appendChild(doc.createElement("JAVADOC"));
+        library.appendChild(doc.createElement("SOURCES"));
     }
 }

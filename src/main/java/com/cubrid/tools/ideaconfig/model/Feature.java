@@ -16,8 +16,6 @@ public class Feature {
     private final Path location;
 
     private String label;
-    private String providerName;
-    private String primaryPlugin;
 
     private final List<PluginReference> plugins = new ArrayList<>();
     private final List<FeatureReference> includedFeatures = new ArrayList<>();
@@ -28,8 +26,6 @@ public class Feature {
         this.version = version != null ? version : "0.0.0";
         this.location = location;
     }
-
-    // Basic properties
 
     public String getId() {
         return id;
@@ -51,24 +47,6 @@ public class Feature {
         this.label = label;
     }
 
-    public String getProviderName() {
-        return providerName;
-    }
-
-    public void setProviderName(String providerName) {
-        this.providerName = providerName;
-    }
-
-    public String getPrimaryPlugin() {
-        return primaryPlugin;
-    }
-
-    public void setPrimaryPlugin(String primaryPlugin) {
-        this.primaryPlugin = primaryPlugin;
-    }
-
-    // Plugins
-
     public List<PluginReference> getPlugins() {
         return Collections.unmodifiableList(plugins);
     }
@@ -78,8 +56,6 @@ public class Feature {
             plugins.add(plugin);
         }
     }
-
-    // Included features
 
     public List<FeatureReference> getIncludedFeatures() {
         return Collections.unmodifiableList(includedFeatures);
@@ -91,8 +67,6 @@ public class Feature {
         }
     }
 
-    // Required plugins
-
     public List<PluginImport> getRequiredPlugins() {
         return Collections.unmodifiableList(requiredPlugins);
     }
@@ -101,17 +75,6 @@ public class Feature {
         if (plugin != null) {
             requiredPlugins.add(plugin);
         }
-    }
-
-    /**
-     * Get all plugin IDs referenced by this feature.
-     */
-    public List<String> getAllPluginIds() {
-        List<String> ids = new ArrayList<>();
-        for (PluginReference pr : plugins) {
-            ids.add(pr.getId());
-        }
-        return ids;
     }
 
     @Override
@@ -137,14 +100,9 @@ public class Feature {
                 '}';
     }
 
-    /**
-     * Reference to a plugin in a feature.
-     */
+    /** Reference to a plugin in a feature. */
     public static class PluginReference {
         private final String id;
-        private String version;
-        private boolean unpack;
-        private boolean fragment;
 
         public PluginReference(String id) {
             this.id = Objects.requireNonNull(id);
@@ -154,42 +112,15 @@ public class Feature {
             return id;
         }
 
-        public String getVersion() {
-            return version;
-        }
-
-        public void setVersion(String version) {
-            this.version = version;
-        }
-
-        public boolean isUnpack() {
-            return unpack;
-        }
-
-        public void setUnpack(boolean unpack) {
-            this.unpack = unpack;
-        }
-
-        public boolean isFragment() {
-            return fragment;
-        }
-
-        public void setFragment(boolean fragment) {
-            this.fragment = fragment;
-        }
-
         @Override
         public String toString() {
             return id;
         }
     }
 
-    /**
-     * Reference to an included feature.
-     */
+    /** Reference to an included feature. */
     public static class FeatureReference {
         private final String id;
-        private String version;
         private boolean optional;
 
         public FeatureReference(String id) {
@@ -198,14 +129,6 @@ public class Feature {
 
         public String getId() {
             return id;
-        }
-
-        public String getVersion() {
-            return version;
-        }
-
-        public void setVersion(String version) {
-            this.version = version;
         }
 
         public boolean isOptional() {
@@ -222,13 +145,9 @@ public class Feature {
         }
     }
 
-    /**
-     * Import of a required plugin.
-     */
+    /** Import of a required plugin (from <requires><import plugin=.../>). */
     public static class PluginImport {
         private final String id;
-        private String version;
-        private String match; // compatible, equivalent, greaterOrEqual, perfect
 
         public PluginImport(String id) {
             this.id = Objects.requireNonNull(id);
@@ -236,22 +155,6 @@ public class Feature {
 
         public String getId() {
             return id;
-        }
-
-        public String getVersion() {
-            return version;
-        }
-
-        public void setVersion(String version) {
-            this.version = version;
-        }
-
-        public String getMatch() {
-            return match;
-        }
-
-        public void setMatch(String match) {
-            this.match = match;
         }
 
         @Override

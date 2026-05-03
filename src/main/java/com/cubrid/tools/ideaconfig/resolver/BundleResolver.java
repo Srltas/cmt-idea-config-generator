@@ -18,12 +18,6 @@ public class BundleResolver {
 
     private static final Logger log = LoggerFactory.getLogger(BundleResolver.class);
 
-    // Well-known system bundles that don't need explicit resolution
-    private static final Set<String> SYSTEM_BUNDLES = Set.of(
-        "system.bundle",
-        "org.eclipse.osgi"
-    );
-
     // Eclipse platform bundles that are typically external
     private static final Set<String> ECLIPSE_PLATFORM_PREFIXES = Set.of(
         "org.eclipse.",
@@ -101,16 +95,9 @@ public class BundleResolver {
             for (BundleRequirement req : bundle.getRequiredBundles()) {
                 String depName = req.getBundleName();
 
-                if (SYSTEM_BUNDLES.contains(depName)) {
-                    // System bundles (org.eclipse.osgi, system.bundle) are the OSGi framework itself.
-                    // In OSGi runtime they're always available, but in IntelliJ IDEA (non-OSGi)
-                    // we need the JAR on the classpath, so treat them as external dependencies.
-                    if (isEclipsePlatformBundle(depName)) {
-                        addExternalDependency(bundleName, depName, req.getVersionRange(), req.isOptional());
-                        log.debug("  {} -> {} (system bundle, treated as external)", bundleName, depName);
-                    } else {
-                        log.debug("  Skipping system bundle: {}", depName);
-                    }
+                // "system.bundle" alias has no JAR; resolve as the OSGi framework bundle.
+                if ("system.bundle".equals(depName)) {
+                    log.debug("  Skipping system bundle alias: {} -> {}", bundleName, depName);
                     continue;
                 }
 
@@ -411,21 +398,4 @@ public class BundleResolver {
         return reExports;
     }
 
-    /**
-     * Get the dependency graph.
-     *
-     * @return the dependency graph
-     */
-    public DependencyGraph getGraph() {
-        return graph;
-    }
-
-    /**
-     * Get bundles in dependency order (dependencies first).
-     *
-     * @return list of bundles in topological order
-     */
-    public List<Bundle> getOrderedBundles() {
-        return graph.getTopologicalOrder();
-    }
 }

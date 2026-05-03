@@ -93,31 +93,10 @@ public class DependencyGraph {
     }
 
     /**
-     * Get a bundle by its symbolic name.
-     *
-     * @param symbolicName the symbolic name
-     * @return the bundle, or null if not found
-     */
-    public Bundle getBundle(String symbolicName) {
-        return bundlesByName.get(symbolicName);
-    }
-
-    /**
      * Get all bundles.
-     *
-     * @return collection of all bundles
      */
     public Collection<Bundle> getAllBundles() {
         return Collections.unmodifiableCollection(bundlesByName.values());
-    }
-
-    /**
-     * Get all bundle symbolic names.
-     *
-     * @return set of symbolic names
-     */
-    public Set<String> getAllBundleNames() {
-        return Collections.unmodifiableSet(bundlesByName.keySet());
     }
 
     /**
@@ -129,18 +108,6 @@ public class DependencyGraph {
     public Set<String> getDependencies(String symbolicName) {
         return Collections.unmodifiableSet(
             dependencies.getOrDefault(symbolicName, Collections.emptySet())
-        );
-    }
-
-    /**
-     * Get dependents of a bundle (bundles that depend on it).
-     *
-     * @param symbolicName the bundle's symbolic name
-     * @return set of dependent symbolic names
-     */
-    public Set<String> getDependents(String symbolicName) {
-        return Collections.unmodifiableSet(
-            dependents.getOrDefault(symbolicName, Collections.emptySet())
         );
     }
 
@@ -185,17 +152,6 @@ public class DependencyGraph {
             }
         }
         return required;
-    }
-
-    /**
-     * Check if a bundle is known (local or external).
-     *
-     * @param symbolicName the symbolic name
-     * @return true if the bundle is known
-     */
-    public boolean isKnownBundle(String symbolicName) {
-        return bundlesByName.containsKey(symbolicName) ||
-               externalBundles.containsKey(symbolicName);
     }
 
     /**

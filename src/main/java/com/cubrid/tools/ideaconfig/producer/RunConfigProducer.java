@@ -26,12 +26,10 @@ public class RunConfigProducer {
 
     private final Path runConfigDir;
     private final Path eclipseDepsDir;
-    private final String workspaceName;
 
-    public RunConfigProducer(Path runConfigDir, Path eclipseDepsDir, String workspaceName) {
+    public RunConfigProducer(Path runConfigDir, Path eclipseDepsDir) {
         this.runConfigDir = runConfigDir;
         this.eclipseDepsDir = eclipseDepsDir;
-        this.workspaceName = workspaceName;
     }
 
     /**
@@ -107,9 +105,13 @@ public class RunConfigProducer {
         // Working directory
         addOption(configuration, "WORKING_DIRECTORY", "$PROJECT_DIR$");
 
-        // Module (use the app bundle or last bundle - it has the most dependencies)
+        // Module (the app bundle, or the last bundle in topological order, which
+        // has the most dependencies on its classpath).
         Element module = doc.createElement("module");
-        String moduleName = findAppModule(bundles, product);
+        String moduleName = findAppModuleName(bundles, product);
+        if (moduleName == null) {
+            moduleName = bundles.isEmpty() ? "" : bundles.get(bundles.size() - 1).getSymbolicName();
+        }
         module.setAttribute("name", moduleName);
         configuration.appendChild(module);
 
@@ -267,44 +269,32 @@ public class RunConfigProducer {
     }
 
     /**
-     * Find the best module to use for the run configuration.
-     * Prefers the app bundle associated with the product, or the last bundle in the list.
+     * Find the bundle that should be the run configuration's module: prefer
+     * the bundle whose symbolic name matches the product's {@code application}
+     * (stripping the trailing ".application"), else any bundle whose symbolic
+     * name contains ".app", else null.
      */
-    private String findAppModule(List<Bundle> bundles, Product product) {
+    public static String findAppModuleName(List<Bundle> bundles, Product product) {
         if (bundles.isEmpty()) {
-            return workspaceName;
+            return null;
         }
-
-        // Try to find the app bundle based on the application ID
         String application = product.getApplication();
         if (application != null && !application.isBlank()) {
-            // Application ID is like "com.cubrid.cubridmigration.app.application"
-            // The bundle is typically "com.cubrid.cubridmigration.app"
-            String appBundleGuess = application;
-            if (application.endsWith(".application")) {
-                appBundleGuess = application.substring(0, application.length() - ".application".length());
-            }
-
+            String appBundleGuess = application.endsWith(".application")
+                ? application.substring(0, application.length() - ".application".length())
+                : application;
             for (Bundle bundle : bundles) {
                 if (bundle.getSymbolicName().equals(appBundleGuess)) {
-                    log.debug("Found app bundle: {}", appBundleGuess);
                     return appBundleGuess;
                 }
             }
-
-            // Try to find bundle containing ".app"
             for (Bundle bundle : bundles) {
                 if (bundle.getSymbolicName().contains(".app")) {
-                    log.debug("Found app bundle by name: {}", bundle.getSymbolicName());
                     return bundle.getSymbolicName();
                 }
             }
         }
-
-        // Fall back to the last bundle (usually has the most dependencies in topological order)
-        String lastBundle = bundles.get(bundles.size() - 1).getSymbolicName();
-        log.debug("Using last bundle as module: {}", lastBundle);
-        return lastBundle;
+        return bundles.get(bundles.size() - 1).getSymbolicName();
     }
 
     /**

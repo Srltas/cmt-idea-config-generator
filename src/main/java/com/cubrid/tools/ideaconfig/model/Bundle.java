@@ -27,17 +27,15 @@ public class Bundle {
     private final List<PackageImport> importedPackages = new ArrayList<>();
     private final List<String> exportedPackages = new ArrayList<>();
 
-    // Source folders from build.properties
     private final List<String> sourceFolders = new ArrayList<>();
     private String outputFolder;
 
-    // Additional libraries from Bundle-ClassPath
     private final List<String> embeddedLibraries = new ArrayList<>();
 
-    // Main-Class for standalone (non-OSGi) applications
+    /** Main-Class for standalone (non-OSGi) applications, or null. */
     private String mainClass;
 
-    // Maven pom.xml dependency artifactIds (for standalone apps)
+    /** Maven pom.xml dependency artifactIds (for standalone apps). */
     private final List<String> pomDependencyArtifactIds = new ArrayList<>();
 
     public Bundle(String symbolicName, String version, Path location) {
@@ -45,8 +43,6 @@ public class Bundle {
         this.version = version != null ? version : "0.0.0";
         this.location = location;
     }
-
-    // Basic properties
 
     public String getSymbolicName() {
         return symbolicName;
@@ -108,8 +104,6 @@ public class Bundle {
         this.singleton = singleton;
     }
 
-    // Classpath
-
     public List<String> getClasspath() {
         return Collections.unmodifiableList(classpath);
     }
@@ -119,8 +113,6 @@ public class Bundle {
             classpath.add(entry.trim());
         }
     }
-
-    // Required bundles
 
     public List<BundleRequirement> getRequiredBundles() {
         return Collections.unmodifiableList(requiredBundles);
@@ -132,8 +124,6 @@ public class Bundle {
         }
     }
 
-    // Imported packages
-
     public List<PackageImport> getImportedPackages() {
         return Collections.unmodifiableList(importedPackages);
     }
@@ -144,8 +134,6 @@ public class Bundle {
         }
     }
 
-    // Exported packages
-
     public List<String> getExportedPackages() {
         return Collections.unmodifiableList(exportedPackages);
     }
@@ -155,8 +143,6 @@ public class Bundle {
             exportedPackages.add(packageName.trim());
         }
     }
-
-    // Source folders
 
     public List<String> getSourceFolders() {
         return Collections.unmodifiableList(sourceFolders);
@@ -176,8 +162,6 @@ public class Bundle {
         this.outputFolder = outputFolder;
     }
 
-    // Embedded libraries
-
     public List<String> getEmbeddedLibraries() {
         return Collections.unmodifiableList(embeddedLibraries);
     }
@@ -188,8 +172,6 @@ public class Bundle {
         }
     }
 
-    // Main class (standalone apps)
-
     public String getMainClass() {
         return mainClass;
     }
@@ -197,8 +179,6 @@ public class Bundle {
     public void setMainClass(String mainClass) {
         this.mainClass = mainClass;
     }
-
-    // POM dependency artifactIds (standalone apps)
 
     public List<String> getPomDependencyArtifactIds() {
         return Collections.unmodifiableList(pomDependencyArtifactIds);
@@ -210,35 +190,9 @@ public class Bundle {
         }
     }
 
-    /**
-     * Check if this bundle is a standalone application (has Main-Class, not an OSGi bundle).
-     */
+    /** True if this bundle defines Main-Class (non-OSGi entry point). */
     public boolean isStandaloneApp() {
         return mainClass != null && !mainClass.isBlank();
-    }
-
-    // Utility methods
-
-    /**
-     * Check if this bundle is a fragment.
-     */
-    public boolean isFragment() {
-        // Fragments have Fragment-Host header - detected during parsing
-        return false; // Will be set by subclass or flag
-    }
-
-    /**
-     * Get the META-INF directory path.
-     */
-    public Path getMetaInfPath() {
-        return location.resolve("META-INF");
-    }
-
-    /**
-     * Get the MANIFEST.MF file path.
-     */
-    public Path getManifestPath() {
-        return getMetaInfPath().resolve("MANIFEST.MF");
     }
 
     @Override
@@ -316,7 +270,6 @@ public class Bundle {
      */
     public static class PackageImport {
         private final String packageName;
-        private String versionRange;
         private boolean optional;
 
         public PackageImport(String packageName) {
@@ -325,14 +278,6 @@ public class Bundle {
 
         public String getPackageName() {
             return packageName;
-        }
-
-        public String getVersionRange() {
-            return versionRange;
-        }
-
-        public void setVersionRange(String versionRange) {
-            this.versionRange = versionRange;
         }
 
         public boolean isOptional() {

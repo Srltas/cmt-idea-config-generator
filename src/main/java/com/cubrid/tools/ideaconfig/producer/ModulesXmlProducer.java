@@ -1,6 +1,7 @@
 package com.cubrid.tools.ideaconfig.producer;
 
 import com.cubrid.tools.ideaconfig.model.Bundle;
+import com.cubrid.tools.ideaconfig.model.TestModule;
 import com.cubrid.tools.ideaconfig.util.XmlHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,71 +28,54 @@ public class ModulesXmlProducer {
         this.modulesDir = modulesDir;
     }
 
-    /**
-     * Generate the modules.xml file.
-     *
-     * @param bundles the bundles (modules) to include
-     * @throws IOException if file writing fails
-     */
-    public void generate(List<Bundle> bundles) throws IOException {
-        log.info("Generating modules.xml with {} modules", bundles.size());
+    public void generate(List<Bundle> bundles, List<TestModule> testModules) throws IOException {
+        log.info("Generating modules.xml ({} bundles + {} test modules)",
+            bundles.size(), testModules.size());
 
         Files.createDirectories(ideaConfigDir);
-
         Path modulesXmlFile = ideaConfigDir.resolve("modules.xml");
 
         Document doc = XmlHelper.createDocument();
-
-        // Root project element
         Element project = doc.createElement("project");
         project.setAttribute("version", "4");
         doc.appendChild(project);
 
-        // Component: ProjectModuleManager
         Element component = doc.createElement("component");
         component.setAttribute("name", "ProjectModuleManager");
         project.appendChild(component);
 
-        // Modules element
         Element modules = doc.createElement("modules");
         component.appendChild(modules);
 
-        // Add each bundle as a module
         for (Bundle bundle : bundles) {
-            Element module = doc.createElement("module");
-
-            String moduleName = bundle.getSymbolicName();
-            String imlPath = getImlPath(moduleName);
-
-            module.setAttribute("fileurl", "file://$PROJECT_DIR$/" + imlPath);
-            module.setAttribute("filepath", "$PROJECT_DIR$/" + imlPath);
-
-            modules.appendChild(module);
+            appendModule(doc, modules, bundle.getSymbolicName());
+        }
+        for (TestModule testModule : testModules) {
+            appendModule(doc, modules, testModule.getName());
         }
 
-        // Write file
         XmlHelper.writeDocument(doc, modulesXmlFile);
         log.info("Written: {}", modulesXmlFile);
     }
 
-    /**
-     * Get the relative path to the .iml file from project root.
-     */
-    private String getImlPath(String moduleName) {
-        // Assuming modules are in the modules/ directory relative to project root
-        Path imlFile = modulesDir.resolve(moduleName + ".iml");
+    private void appendModule(Document doc, Element modules, String moduleName) {
+        Element module = doc.createElement("module");
+        String imlPath = getImlPath(moduleName);
+        module.setAttribute("fileurl", "file://$PROJECT_DIR$/" + imlPath);
+        module.setAttribute("filepath", "$PROJECT_DIR$/" + imlPath);
+        modules.appendChild(module);
+    }
 
-        // Get relative path from ideaConfigDir parent (which is the workspace dir)
+    private String getImlPath(String moduleName) {
+        Path imlFile = modulesDir.resolve(moduleName + ".iml");
         Path workspaceDir = ideaConfigDir.getParent();
         if (workspaceDir != null) {
             try {
-                Path relativePath = workspaceDir.relativize(imlFile);
-                return relativePath.toString().replace('\\', '/');
+                return workspaceDir.relativize(imlFile).toString().replace('\\', '/');
             } catch (IllegalArgumentException e) {
-                // Fall through
+                // Fall through to default path
             }
         }
-
         return "modules/" + moduleName + ".iml";
     }
 }

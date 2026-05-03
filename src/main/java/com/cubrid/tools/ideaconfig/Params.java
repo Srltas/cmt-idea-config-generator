@@ -5,11 +5,9 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 import java.nio.file.Path;
-import java.util.concurrent.Callable;
 
 /**
  * Command line parameters for the CMT IDEA Config Generator.
- * Uses PicoCLI for argument parsing.
  */
 @Command(
     name = "cmt-idea-config-generator",
@@ -17,7 +15,7 @@ import java.util.concurrent.Callable;
     version = "1.0.0",
     description = "Generates IntelliJ IDEA configuration files for CUBRID Migration Toolkit (Eclipse RCP project)"
 )
-public class Params implements Callable<Integer> {
+public class Params {
 
     @Option(
         names = {"-c", "--config"},
@@ -47,27 +45,6 @@ public class Params implements Callable<Integer> {
     private Path eclipseDepsDir;
 
     @Option(
-        names = {"--update-workspace"},
-        description = "Update existing workspace.xml if present",
-        defaultValue = "false"
-    )
-    private boolean updateWorkspace;
-
-    @Option(
-        names = {"--single-core"},
-        description = "Run in single-threaded mode (for debugging)",
-        defaultValue = "false"
-    )
-    private boolean singleCoreMode;
-
-    @Option(
-        names = {"--no-tree"},
-        description = "Skip dependency tree generation",
-        defaultValue = "false"
-    )
-    private boolean noTree;
-
-    @Option(
         names = {"-d", "--debug"},
         description = "Enable debug logging",
         defaultValue = "false"
@@ -75,28 +52,11 @@ public class Params implements Callable<Integer> {
     private boolean debug;
 
     @Option(
-        names = {"--dry-run"},
+        names = {"-n", "--dry-run"},
         description = "Analyze and report without generating files",
         defaultValue = "false"
     )
     private boolean dryRun;
-
-    // Callback to the actual generator
-    private Runnable generateAction;
-
-    public void setGenerateAction(Runnable action) {
-        this.generateAction = action;
-    }
-
-    @Override
-    public Integer call() {
-        if (generateAction != null) {
-            generateAction.run();
-        }
-        return 0;
-    }
-
-    // Getters
 
     public Path getConfigFile() {
         return configFile;
@@ -118,22 +78,9 @@ public class Params implements Callable<Integer> {
         Path absProjectsFolder = projectsFolder.toAbsolutePath().normalize();
         Path parent = absProjectsFolder.getParent();
         if (parent == null) {
-            // Fallback if no parent (root directory)
             parent = absProjectsFolder;
         }
         return parent.resolve("workspace").resolve("dependencies");
-    }
-
-    public boolean isUpdateWorkspace() {
-        return updateWorkspace;
-    }
-
-    public boolean isSingleCoreMode() {
-        return singleCoreMode;
-    }
-
-    public boolean isNoTree() {
-        return noTree;
     }
 
     public boolean isDebug() {
@@ -145,10 +92,9 @@ public class Params implements Callable<Integer> {
     }
 
     /**
-     * Parse command line arguments and return Params instance.
+     * Parse command line arguments.
      *
-     * @param args command line arguments
-     * @return parsed Params or null if parsing failed
+     * @return parsed Params, or null if parsing failed or help/version was requested
      */
     public static Params parse(String[] args) {
         Params params = new Params();
@@ -161,28 +107,16 @@ public class Params implements Callable<Integer> {
                 cmd.usage(System.out);
                 return null;
             }
-
             if (result.isVersionHelpRequested()) {
                 cmd.printVersionHelp(System.out);
                 return null;
             }
-
             return params;
         } catch (CommandLine.ParameterException ex) {
-            System.err.println(ex.getMessage());
+            System.err.println("Error: " + ex.getMessage());
             cmd.usage(System.err);
             return null;
         }
-    }
-
-    /**
-     * Execute with the given arguments.
-     *
-     * @param args command line arguments
-     * @return exit code
-     */
-    public static int execute(String[] args) {
-        return new CommandLine(new Params()).execute(args);
     }
 
     @Override
@@ -192,9 +126,6 @@ public class Params implements Callable<Integer> {
                 ", projectsFolder=" + projectsFolder +
                 ", outputDir=" + outputDir +
                 ", eclipseDepsDir=" + getEclipseDepsDir() +
-                ", updateWorkspace=" + updateWorkspace +
-                ", singleCoreMode=" + singleCoreMode +
-                ", noTree=" + noTree +
                 ", debug=" + debug +
                 ", dryRun=" + dryRun +
                 '}';

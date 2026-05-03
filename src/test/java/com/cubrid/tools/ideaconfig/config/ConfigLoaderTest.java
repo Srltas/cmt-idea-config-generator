@@ -30,7 +30,6 @@ class ConfigLoaderTest {
             workspaceName=my-workspace
             bundlesPaths=plugins
             productsPaths=product/my.product
-            repositories=https://example.com/p2/
             """);
 
         ProjectConfig config = loader.load(configFile);
@@ -38,7 +37,6 @@ class ConfigLoaderTest {
         assertThat(config.getWorkspaceName()).isEqualTo("my-workspace");
         assertThat(config.getBundlesPaths()).containsExactly("plugins");
         assertThat(config.getProductsPaths()).containsExactly("product/my.product");
-        assertThat(config.getRepositories()).containsExactly("https://example.com/p2/");
     }
 
     @Test
@@ -51,30 +49,12 @@ class ConfigLoaderTest {
               plugins/ui;\\
               plugins/app
             productsPaths=product/my.product
-            repositories=https://example.com/p2/
             """);
 
         ProjectConfig config = loader.load(configFile);
 
         assertThat(config.getBundlesPaths())
             .containsExactly("plugins/core", "plugins/ui", "plugins/app");
-    }
-
-    @Test
-    void testLoadWithVariableSubstitution() throws Exception {
-        Path configFile = tempDir.resolve("test.properties");
-        Files.writeString(configFile, """
-            workspaceName=my-workspace
-            bundlesPaths=plugins
-            productsPaths=product/my.product
-            repositories=https://download.eclipse.org/releases/${eclipse-version}/
-            """);
-
-        loader.addVariable("eclipse-version", "2025-03");
-        ProjectConfig config = loader.load(configFile);
-
-        assertThat(config.getRepositories())
-            .containsExactly("https://download.eclipse.org/releases/2025-03/");
     }
 
     @Test
@@ -87,7 +67,6 @@ class ConfigLoaderTest {
             # Another comment
             bundlesPaths=plugins
             productsPaths=product/my.product
-            repositories=https://example.com/p2/
             """);
 
         ProjectConfig config = loader.load(configFile);
@@ -105,48 +84,34 @@ class ConfigLoaderTest {
     }
 
     @Test
-    void testVariableSubstitutionWithAddVariable() throws Exception {
-        Path configFile = tempDir.resolve("test.properties");
-        Files.writeString(configFile, """
-            workspaceName=my-workspace
-            bundlesPaths=plugins
-            productsPaths=product/my.product
-            repositories=https://download.eclipse.org/releases/${my-var}/
-            """);
-
-        ConfigLoader loaderWithVar = new ConfigLoader();
-        loaderWithVar.addVariable("my-var", "test-value");
-        ProjectConfig config = loaderWithVar.load(configFile);
-
-        assertThat(config.getRepositories())
-            .containsExactly("https://download.eclipse.org/releases/test-value/");
-    }
-
-    @Test
-    void testLoadAllConfigProperties() throws Exception {
+    void testLoadAllSupportedProperties() throws Exception {
         Path configFile = tempDir.resolve("test.properties");
         Files.writeString(configFile, """
             workspaceName=full-test
             featuresPaths=features/main;features/optional
             bundlesPaths=plugins
-            repositories=https://example.com/p2/
             productsPaths=product/my.product
-            testBundlePaths=test/unit;test/integration
-            testLibraries=org.junit;org.mockito
-            ideaConfigurationFilesPaths=.idea
-            additionalModuleRoots=modules/extra
-            excludeOutputs=target;bin
-            optionalFeatureRepositories=features/optional
+            additionalModuleRoots=plugins/standalone-app
+            testModuleRoots=tests/unit-test;tests/e2e
             """);
 
         ProjectConfig config = loader.load(configFile);
 
         assertThat(config.getWorkspaceName()).isEqualTo("full-test");
         assertThat(config.getFeaturesPaths()).containsExactly("features/main", "features/optional");
-        assertThat(config.getTestBundlePaths()).containsExactly("test/unit", "test/integration");
-        assertThat(config.getTestLibraries()).containsExactly("org.junit", "org.mockito");
-        assertThat(config.getIdeaConfigurationFilesPaths()).containsExactly(".idea");
-        assertThat(config.getAdditionalModuleRoots()).containsExactly("modules/extra");
-        assertThat(config.getExcludeOutputs()).containsExactly("target", "bin");
+        assertThat(config.getBundlesPaths()).containsExactly("plugins");
+        assertThat(config.getAdditionalModuleRoots()).containsExactly("plugins/standalone-app");
+        assertThat(config.getTestModuleRoots()).containsExactly("tests/unit-test", "tests/e2e");
+    }
+
+    @Test
+    void testValidateMissingWorkspaceName() {
+        ProjectConfig config = new ProjectConfig();
+        config.addBundlesPath("plugins");
+        config.addProductsPath("product/my.product");
+
+        assertThatThrownBy(config::validate)
+            .isInstanceOf(ProjectConfig.ConfigurationException.class)
+            .hasMessageContaining("workspaceName");
     }
 }
