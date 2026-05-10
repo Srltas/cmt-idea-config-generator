@@ -91,7 +91,6 @@ class ConfigLoaderTest {
             featuresPaths=features/main;features/optional
             bundlesPaths=plugins
             productsPaths=product/my.product
-            additionalModuleRoots=plugins/standalone-app
             testModuleRoots=tests/unit-test;tests/e2e
             """);
 
@@ -100,7 +99,6 @@ class ConfigLoaderTest {
         assertThat(config.getWorkspaceName()).isEqualTo("full-test");
         assertThat(config.getFeaturesPaths()).containsExactly("features/main", "features/optional");
         assertThat(config.getBundlesPaths()).containsExactly("plugins");
-        assertThat(config.getAdditionalModuleRoots()).containsExactly("plugins/standalone-app");
         assertThat(config.getTestModuleRoots()).containsExactly("tests/unit-test", "tests/e2e");
     }
 

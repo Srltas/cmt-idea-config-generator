@@ -96,7 +96,6 @@ public class ConfigLoader {
         parsePathList(properties.get("featuresPaths"), config::addFeaturesPath);
         parsePathList(properties.get("bundlesPaths"), config::addBundlesPath);
         parsePathList(properties.get("productsPaths"), config::addProductsPath);
-        parsePathList(properties.get("additionalModuleRoots"), config::addAdditionalModuleRoot);
         parsePathList(properties.get("testModuleRoots"), config::addTestModuleRoot);
         return config;
     }

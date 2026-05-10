@@ -108,16 +108,9 @@ Eclipse Equinox Launcher를 통해 OSGi 런타임 위에서 실행되는 GUI 애
 OSGi 없이 `Main-Class`를 직접 실행하는 커맨드라인 애플리케이션입니다.
 
 - **실행 구성 파일**: `CMT_Console.xml`
-- **자동 감지**: MANIFEST.MF의 `Main-Class` 헤더가 있는 번들 자동 인식
+- **자동 감지**: `bundlesPaths` 아래에 있는 번들 중 MANIFEST.MF의 `Main-Class` 헤더가 있는 모듈을 자동 인식 (별도 등록 불필요)
 - **Bundle-SymbolicName 없는 모듈 지원**: MANIFEST.MF에 `Bundle-SymbolicName`이 없으면 디렉토리 이름을 모듈 이름으로 사용
 - **pom.xml 의존성 분석**: standalone 모듈의 `pom.xml`을 파싱하여 의존하는 로컬 모듈을 자동으로 classpath에 포함
-
-Console 모듈은 `osgi-app.properties`의 `additionalModuleRoots`에 등록하면 됩니다:
-
-```properties
-additionalModuleRoots=\
-  cubrid-migration/plugins/com.cubrid.cubridmigration.command
-```
 
 ## Maven 테스트 모듈 (Test Modules)
 

@@ -14,7 +14,6 @@ public class ProjectConfig {
     private final List<String> featuresPaths = new ArrayList<>();
     private final List<String> bundlesPaths = new ArrayList<>();
     private final List<String> productsPaths = new ArrayList<>();
-    private final List<String> additionalModuleRoots = new ArrayList<>();
     private final List<String> testModuleRoots = new ArrayList<>();
 
     private Path projectsFolder;
@@ -51,14 +50,6 @@ public class ProjectConfig {
 
     public void addProductsPath(String path) {
         addPath(path, productsPaths);
-    }
-
-    public List<String> getAdditionalModuleRoots() {
-        return Collections.unmodifiableList(additionalModuleRoots);
-    }
-
-    public void addAdditionalModuleRoot(String path) {
-        addPath(path, additionalModuleRoots);
     }
 
     /**
@@ -122,7 +113,6 @@ public class ProjectConfig {
                 ", featuresPaths=" + featuresPaths +
                 ", bundlesPaths=" + bundlesPaths +
                 ", productsPaths=" + productsPaths +
-                ", additionalModuleRoots=" + additionalModuleRoots +
                 ", testModuleRoots=" + testModuleRoots +
                 ", projectsFolder=" + projectsFolder +
                 ", outputDir=" + outputDir +

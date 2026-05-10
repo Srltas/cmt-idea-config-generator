@@ -28,7 +28,6 @@ public class PathsManager {
     private final List<Path> featuresPaths = new ArrayList<>();
     private final List<Path> bundlesPaths = new ArrayList<>();
     private final List<Path> productsPaths = new ArrayList<>();
-    private final List<Path> additionalModuleRoots = new ArrayList<>();
     private final List<Path> testModuleRoots = new ArrayList<>();
 
     private Path ideaConfigDir;
@@ -66,7 +65,6 @@ public class PathsManager {
             }
         }
 
-        resolveDirList(config.getAdditionalModuleRoots(), additionalModuleRoots, "Additional module");
         resolveDirList(config.getTestModuleRoots(), testModuleRoots, "Test module");
 
         // Output directory layout
@@ -105,8 +103,9 @@ public class PathsManager {
     }
 
     /**
-     * Find OSGi bundle directories (those containing META-INF/MANIFEST.MF).
-     * Includes additionalModuleRoots, deduplicated.
+     * Find OSGi bundle directories (those containing META-INF/MANIFEST.MF) under
+     * each configured {@code bundlesPaths}. Same directory present in multiple
+     * roots is reported once.
      */
     public List<Path> findBundleDirectories() throws IOException {
         List<Path> bundles = new ArrayList<>();
@@ -121,12 +120,6 @@ public class PathsManager {
                               bundles.add(dir);
                           }
                       });
-            }
-        }
-
-        for (Path modulePath : additionalModuleRoots) {
-            if (isBundleDirectory(modulePath) && seen.add(modulePath.toAbsolutePath().normalize())) {
-                bundles.add(modulePath);
             }
         }
 
