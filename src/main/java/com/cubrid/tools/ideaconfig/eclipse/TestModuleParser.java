@@ -13,27 +13,23 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.LinkedHashSet;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Parses a Maven-style test module: extracts source folders, classifies
- * dependencies as local OSGi bundles vs external Maven JARs, and resolves
- * external JAR paths.
+ * Parses a Maven-style test module: extracts source folders, classifies dependencies as local
+ * OSGi bundles vs external Maven JARs, and resolves external JAR paths via
+ * {@code mvn dependency:build-classpath}.
  *
- * <p>Two strategies for external resolution, in order:
- * <ol>
- *   <li>{@code mvn dependency:build-classpath} (handles BOMs and transitive deps)</li>
- *   <li>Direct {@code ~/.m2/repository} lookup of each pom direct dependency</li>
- * </ol>
- * The fallback runs when Maven is unavailable or fails (e.g. missing local SNAPSHOT
- * deps that haven't been installed yet).
+ * <p>To avoid requiring the user to {@code mvn install} local SNAPSHOT bundles before running
+ * the generator, dependencies whose groupId starts with {@link #localGroupPrefix} are stripped
+ * from a stub pom written next to the original. Maven then resolves only third-party deps
+ * (with full BOM and transitive support); local bundles are wired up separately as IDEA module
+ * dependencies.
  */
 public class TestModuleParser {
 
@@ -41,22 +37,14 @@ public class TestModuleParser {
 
     private static final String LOCAL_DEPENDENCY_GROUP_PREFIX = "com.cubrid.cubridmigration";
 
-    private static final Pattern PROPERTY_REF = Pattern.compile("\\$\\{([^}]+)}");
-
     private final String localGroupPrefix;
-    private final Path mavenLocalRepo;
 
     public TestModuleParser() {
-        this(LOCAL_DEPENDENCY_GROUP_PREFIX, defaultMavenLocalRepo());
+        this(LOCAL_DEPENDENCY_GROUP_PREFIX);
     }
 
-    public TestModuleParser(String localGroupPrefix, Path mavenLocalRepo) {
+    public TestModuleParser(String localGroupPrefix) {
         this.localGroupPrefix = localGroupPrefix;
-        this.mavenLocalRepo = mavenLocalRepo;
-    }
-
-    private static Path defaultMavenLocalRepo() {
-        return Path.of(System.getProperty("user.home"), ".m2", "repository");
     }
 
     public TestModule parse(Path moduleDir, Set<String> localBundleNames) throws IOException {
@@ -81,11 +69,7 @@ public class TestModuleParser {
         }
 
         addLocalDependencies(pomDoc, localBundleNames, module);
-
-        boolean resolvedViaMaven = resolveViaMaven(pomFile, module);
-        if (!resolvedViaMaven) {
-            resolveViaLocalRepo(pomDoc, module);
-        }
+        resolveExternalLibraries(pomFile, pomDoc, module);
 
         log.info("  Test module: {} ({} src folders, {} local deps, {} external libs)",
             module.getName(),
@@ -118,49 +102,85 @@ public class TestModuleParser {
         });
     }
 
-    /**
-     * Try {@code mvn dependency:build-classpath} for accurate (transitive, BOM-aware)
-     * resolution. Returns true if Maven succeeded and at least one external JAR was added.
-     */
-    private boolean resolveViaMaven(Path pomFile, TestModule module) {
-        Path tempFile;
+    protected void resolveExternalLibraries(Path pomFile, Document pomDoc, TestModule module) {
+        Path stubPom;
         try {
-            tempFile = Files.createTempFile("cmt-classpath-", ".txt");
+            stubPom = writeStubPom(pomFile, pomDoc);
         } catch (IOException e) {
-            log.debug("  Could not create temp file for classpath resolution: {}", e.getMessage());
-            return false;
+            log.error("  Could not write stub pom for {}: {}; external libraries will be missing",
+                module.getName(), e.getMessage());
+            return;
         }
 
-        ProcessBuilder pb = new ProcessBuilder(
-            "mvn", "-q", "-f", pomFile.toString(),
-            "dependency:build-classpath",
-            "-DincludeScope=test",
-            "-DexcludeGroupIds=" + localGroupPrefix,
-            "-Dmdep.outputFile=" + tempFile.toAbsolutePath(),
-            "-Dmdep.pathSeparator=" + System.getProperty("path.separator")
-        );
-        pb.redirectErrorStream(true);
-
         try {
+            runMavenBuildClasspath(stubPom, module);
+        } catch (IOException e) {
+            log.error("  Maven classpath resolution failed for {}: {}; external libraries will be missing",
+                module.getName(), e.getMessage());
+        } finally {
+            try {
+                Files.deleteIfExists(stubPom);
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    /**
+     * Clone the original pom and remove top-level {@code <dependency>} entries whose groupId
+     * starts with {@link #localGroupPrefix}. {@code <dependencyManagement>} (BOM imports) and
+     * {@code <properties>} are preserved so Maven can still resolve BOM-managed versions
+     * correctly. The stub is written as a sibling of the original so {@code ${project.basedir}}
+     * remains valid for profile activation and {@code <systemPath>} references.
+     */
+    Path writeStubPom(Path originalPom, Document originalPomDoc) throws IOException {
+        Document stubDoc = (Document) originalPomDoc.cloneNode(true);
+        Element project = stubDoc.getDocumentElement();
+        XmlHelper.getChildElement(project, "dependencies").ifPresent(deps -> {
+            List<Element> toRemove = new ArrayList<>();
+            for (Element dep : XmlHelper.getChildElements(deps, "dependency")) {
+                String groupId = XmlHelper.getChildText(dep, "groupId");
+                if (groupId != null && groupId.trim().startsWith(localGroupPrefix)) {
+                    toRemove.add(dep);
+                }
+            }
+            for (Element dep : toRemove) {
+                deps.removeChild(dep);
+            }
+        });
+
+        Path stubPom = originalPom.resolveSibling("pom-cmt-stub-" + UUID.randomUUID() + ".xml");
+        XmlHelper.writeDocument(stubDoc, stubPom);
+        return stubPom;
+    }
+
+    private void runMavenBuildClasspath(Path stubPom, TestModule module) throws IOException {
+        Path tempFile = Files.createTempFile("cmt-classpath-", ".txt");
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                "mvn", "-q", "-f", stubPom.toString(),
+                "dependency:build-classpath",
+                "-DincludeScope=test",
+                "-Dmdep.outputFile=" + tempFile.toAbsolutePath(),
+                "-Dmdep.pathSeparator=" + System.getProperty("path.separator")
+            );
+            pb.redirectErrorStream(true);
+
             log.info("  Resolving Maven test classpath for {} (this may take a while)...", module.getName());
             Process process = pb.start();
             byte[] output = process.getInputStream().readAllBytes();
             boolean done = process.waitFor(5, TimeUnit.MINUTES);
             if (!done) {
                 process.destroyForcibly();
-                log.warn("  mvn dependency:build-classpath timed out for {}", module.getName());
-                return false;
+                throw new IOException("mvn dependency:build-classpath timed out");
             }
             if (process.exitValue() != 0) {
-                log.warn("  mvn dependency:build-classpath failed (exit {}) for {}; falling back to ~/.m2 lookup",
-                    process.exitValue(), module.getName());
-                log.debug("  Maven output:\n{}", new String(output, StandardCharsets.UTF_8));
-                return false;
+                throw new IOException("mvn dependency:build-classpath exited "
+                    + process.exitValue() + ":\n" + new String(output, StandardCharsets.UTF_8));
             }
 
             String classpath = Files.readString(tempFile, StandardCharsets.UTF_8).trim();
             if (classpath.isEmpty()) {
-                return true; // Maven succeeded with empty classpath; no fallback needed.
+                return;
             }
             for (String entry : classpath.split(Pattern.quote(System.getProperty("path.separator")))) {
                 String trimmed = entry.trim();
@@ -170,104 +190,14 @@ public class TestModuleParser {
                     module.addExternalLibrary(jarPath);
                 }
             }
-            return true;
-        } catch (IOException e) {
-            log.warn("  Could not run Maven for {}: {}; falling back to ~/.m2 lookup",
-                module.getName(), e.getMessage());
-            return false;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return false;
+            throw new IOException("Interrupted while running mvn", e);
         } finally {
             try {
                 Files.deleteIfExists(tempFile);
             } catch (IOException ignored) {
             }
         }
-    }
-
-    /**
-     * Fallback: parse direct pom dependencies and resolve each against {@code ~/.m2/repository}.
-     * Skips local-groupId deps (covered by module deps) and deps without an explicit version
-     * (BOM-managed; cannot be resolved without running Maven).
-     */
-    private void resolveViaLocalRepo(Document pomDoc, TestModule module) {
-        if (mavenLocalRepo == null || !Files.isDirectory(mavenLocalRepo)) {
-            log.warn("  Maven local repo not found: {}", mavenLocalRepo);
-            return;
-        }
-
-        Map<String, String> properties = parsePomProperties(pomDoc);
-        Element project = pomDoc.getDocumentElement();
-
-        int found = 0;
-        int skipped = 0;
-        Set<String> seen = new LinkedHashSet<>();
-
-        List<Element> deps = XmlHelper.getChildElement(project, "dependencies")
-            .map(d -> XmlHelper.getChildElements(d, "dependency"))
-            .orElse(List.of());
-
-        for (Element dep : deps) {
-            String groupId = substitute(XmlHelper.getChildText(dep, "groupId"), properties);
-            String artifactId = substitute(XmlHelper.getChildText(dep, "artifactId"), properties);
-            String version = substitute(XmlHelper.getChildText(dep, "version"), properties);
-
-            if (groupId == null || artifactId == null) continue;
-            if (groupId.startsWith(localGroupPrefix)) continue;
-            if (version == null || version.isBlank()) {
-                log.debug("    No version for {}:{} (likely BOM-managed); skipping", groupId, artifactId);
-                skipped++;
-                continue;
-            }
-
-            String key = groupId + ":" + artifactId + ":" + version;
-            if (!seen.add(key)) continue;
-
-            Path jar = mavenLocalRepo
-                .resolve(groupId.replace('.', '/'))
-                .resolve(artifactId)
-                .resolve(version)
-                .resolve(artifactId + "-" + version + ".jar");
-
-            if (Files.exists(jar)) {
-                module.addExternalLibrary(jar);
-                found++;
-            } else {
-                log.debug("    Not in local repo: {}", jar);
-                skipped++;
-            }
-        }
-
-        log.info("  Local-repo fallback for {}: {} resolved, {} skipped", module.getName(), found, skipped);
-    }
-
-    private Map<String, String> parsePomProperties(Document pomDoc) {
-        Map<String, String> properties = new HashMap<>();
-        Element project = pomDoc.getDocumentElement();
-        XmlHelper.getChildElement(project, "properties").ifPresent(propsEl -> {
-            org.w3c.dom.NodeList children = propsEl.getChildNodes();
-            for (int i = 0; i < children.getLength(); i++) {
-                org.w3c.dom.Node node = children.item(i);
-                if (node.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
-                    properties.put(node.getNodeName(), node.getTextContent().trim());
-                }
-            }
-        });
-        return properties;
-    }
-
-    private static String substitute(String value, Map<String, String> properties) {
-        if (value == null || !value.contains("${")) {
-            return value == null ? null : value.trim();
-        }
-        Matcher matcher = PROPERTY_REF.matcher(value);
-        StringBuilder result = new StringBuilder();
-        while (matcher.find()) {
-            String replacement = properties.getOrDefault(matcher.group(1), matcher.group(0));
-            matcher.appendReplacement(result, Matcher.quoteReplacement(replacement));
-        }
-        matcher.appendTail(result);
-        return result.toString().trim();
     }
 }
