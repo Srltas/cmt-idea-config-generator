@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Produces IntelliJ IDEA run configuration files for Eclipse RCP applications.
@@ -23,6 +24,36 @@ public class RunConfigProducer {
 
     // Eclipse Equinox launcher main class
     private static final String EQUINOX_LAUNCHER_CLASS = "org.eclipse.equinox.launcher.Main";
+
+    /**
+     * Start level + autostart flag for a bundle in bundles.info. The level is the OSGi
+     * start level (-1 means "framework bundle", which simpleconfigurator treats specially).
+     */
+    private record StartConfig(int level, boolean autoStart) {}
+
+    private static final StartConfig DEFAULT_START_CONFIG = new StartConfig(4, false);
+
+    // Core Eclipse/OSGi bundles that need a non-default start level and/or autostart.
+    // Levels mirror what the original Eclipse product config.ini emits.
+    private static final Map<String, StartConfig> START_CONFIG_BY_NAME = Map.of(
+        "org.eclipse.osgi",                       new StartConfig(-1, true),
+        "org.eclipse.equinox.simpleconfigurator", new StartConfig(1, true),
+        "org.eclipse.equinox.common",             new StartConfig(2, true),
+        "org.eclipse.equinox.ds",                 new StartConfig(2, true),
+        "org.apache.felix.scr",                   new StartConfig(2, true),
+        "org.eclipse.equinox.event",              new StartConfig(2, true),
+        "org.eclipse.core.runtime",               new StartConfig(4, true)
+    );
+
+    private static StartConfig startConfigFor(String symbolicName) {
+        StartConfig sc = START_CONFIG_BY_NAME.get(symbolicName);
+        if (sc != null) return sc;
+        // logback-* are at level 2; only logback-classic autostarts (binds the SLF4J provider).
+        if (symbolicName.startsWith("ch.qos.logback")) {
+            return new StartConfig(2, symbolicName.equals("ch.qos.logback.classic"));
+        }
+        return DEFAULT_START_CONFIG;
+    }
 
     private final Path runConfigDir;
     private final Path eclipseDepsDir;
@@ -513,42 +544,13 @@ public class RunConfigProducer {
                           String symbolicName = nameWithoutExt.substring(0, lastUnderscore);
                           String version = nameWithoutExt.substring(lastUnderscore + 1);
 
-                          // Determine start level and autostart
-                          int startLevel = 4;  // Default start level
-                          boolean autoStart = false;
-
-                          // Core bundles that need to start early
-                          if (symbolicName.equals("org.eclipse.osgi")) {
-                              startLevel = -1;  // Framework bundle
-                              autoStart = true;
-                          } else if (symbolicName.equals("org.eclipse.equinox.simpleconfigurator")) {
-                              startLevel = 1;
-                              autoStart = true;
-                          } else if (symbolicName.equals("org.eclipse.equinox.common")) {
-                              startLevel = 2;
-                              autoStart = true;
-                          } else if (symbolicName.equals("org.eclipse.equinox.ds") ||
-                                     symbolicName.equals("org.apache.felix.scr")) {
-                              startLevel = 2;
-                              autoStart = true;
-                          } else if (symbolicName.equals("org.eclipse.core.runtime")) {
-                              startLevel = 4;
-                              autoStart = true;
-                          } else if (symbolicName.equals("org.eclipse.equinox.event")) {
-                              startLevel = 2;
-                              autoStart = true;
-                          } else if (symbolicName.startsWith("ch.qos.logback")) {
-                              startLevel = 2;
-                              autoStart = symbolicName.equals("ch.qos.logback.classic");
-                          }
-
-                          // Build the entry with file: URI for cross-platform compatibility
+                          StartConfig sc = startConfigFor(symbolicName);
                           String location = PathHelper.toFileUri(bundlePath);
                           sb.append(symbolicName).append(",")
                             .append(version).append(",")
                             .append(location).append(",")
-                            .append(startLevel).append(",")
-                            .append(autoStart).append("\n");
+                            .append(sc.level).append(",")
+                            .append(sc.autoStart).append("\n");
                       }
                   });
         }

@@ -4,7 +4,6 @@ import com.cubrid.tools.ideaconfig.model.Bundle;
 import com.cubrid.tools.ideaconfig.model.DependencyGraph;
 import com.cubrid.tools.ideaconfig.model.TestModule;
 import com.cubrid.tools.ideaconfig.model.TestModule.SourceFolder;
-import com.cubrid.tools.ideaconfig.util.VersionHelper;
 import com.cubrid.tools.ideaconfig.util.XmlHelper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +29,7 @@ public class IMLProducer {
 
     private final Path modulesDir;
     private final DependencyGraph dependencyGraph;
-    private final String jdkVersion;
+    private final String languageLevel;
 
     // Per-module extra external bundles (e.g., org.eclipse.equinox.launcher
     // for the app module that the Desktop run config targets).
@@ -39,7 +38,7 @@ public class IMLProducer {
     public IMLProducer(Path modulesDir, DependencyGraph dependencyGraph, String jdkVersion) {
         this.modulesDir = modulesDir;
         this.dependencyGraph = dependencyGraph;
-        this.jdkVersion = jdkVersion != null ? jdkVersion : "21";
+        this.languageLevel = "JDK_" + (jdkVersion != null ? jdkVersion : "21");
     }
 
     public void addExtraExternalBundle(String moduleName, String bundleName) {
@@ -78,7 +77,7 @@ public class IMLProducer {
 
         Element component = doc.createElement("component");
         component.setAttribute("name", "NewModuleRootManager");
-        component.setAttribute("LANGUAGE_LEVEL", VersionHelper.toIdeaLanguageLevel(jdkVersion));
+        component.setAttribute("LANGUAGE_LEVEL", languageLevel);
         module.appendChild(component);
 
         String bundleRelPath = relativizeFromModulesDir(bundle.getLocation());
@@ -193,7 +192,7 @@ public class IMLProducer {
 
         Element component = doc.createElement("component");
         component.setAttribute("name", "NewModuleRootManager");
-        component.setAttribute("LANGUAGE_LEVEL", VersionHelper.toIdeaLanguageLevel(jdkVersion));
+        component.setAttribute("LANGUAGE_LEVEL", languageLevel);
         component.setAttribute("inherit-compiler-output", "false");
         module.appendChild(component);
 
