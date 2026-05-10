@@ -37,22 +37,16 @@ class ManifestParserTest {
             Bundle-ManifestVersion: 2
             Bundle-SymbolicName: com.example.test
             Bundle-Version: 1.0.0
-            Bundle-Name: Test Bundle
-            Bundle-Vendor: Example Inc
-            Bundle-RequiredExecutionEnvironment: JavaSE-21
             """);
 
         Bundle bundle = parser.parseBundle(bundleDir);
 
         assertThat(bundle.getSymbolicName()).isEqualTo("com.example.test");
         assertThat(bundle.getVersion()).isEqualTo("1.0.0");
-        assertThat(bundle.getName()).isEqualTo("Test Bundle");
-        assertThat(bundle.getVendor()).isEqualTo("Example Inc");
-        assertThat(bundle.getExecutionEnvironment()).isEqualTo("JavaSE-21");
     }
 
     @Test
-    void testParseSingletonBundle() throws IOException {
+    void testParseSymbolicNameStripsDirectives() throws IOException {
         Path manifestFile = metaInfDir.resolve("MANIFEST.MF");
         Files.writeString(manifestFile, """
             Manifest-Version: 1.0
@@ -64,7 +58,6 @@ class ManifestParserTest {
         Bundle bundle = parser.parseBundle(bundleDir);
 
         assertThat(bundle.getSymbolicName()).isEqualTo("com.example.test");
-        assertThat(bundle.isSingleton()).isTrue();
     }
 
     @Test
@@ -107,7 +100,6 @@ class ManifestParserTest {
 
         Bundle bundle = parser.parseBundle(bundleDir);
 
-        assertThat(bundle.getClasspath()).containsExactly(".", "lib/commons.jar", "lib/util.jar");
         assertThat(bundle.getEmbeddedLibraries()).containsExactly("lib/commons.jar", "lib/util.jar");
     }
 

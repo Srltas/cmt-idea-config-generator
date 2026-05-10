@@ -27,11 +27,6 @@ public class ManifestParser {
     // Header names
     private static final String BUNDLE_SYMBOLIC_NAME = "Bundle-SymbolicName";
     private static final String BUNDLE_VERSION = "Bundle-Version";
-    private static final String BUNDLE_NAME = "Bundle-Name";
-    private static final String BUNDLE_VENDOR = "Bundle-Vendor";
-    private static final String BUNDLE_ACTIVATOR = "Bundle-Activator";
-    private static final String BUNDLE_EXECUTION_ENV = "Bundle-RequiredExecutionEnvironment";
-    private static final String BUNDLE_ACTIVATION_POLICY = "Bundle-ActivationPolicy";
     private static final String BUNDLE_CLASSPATH = "Bundle-ClassPath";
     private static final String REQUIRE_BUNDLE = "Require-Bundle";
     private static final String IMPORT_PACKAGE = "Import-Package";
@@ -62,24 +57,20 @@ public class ManifestParser {
 
         // Extract symbolic name (fall back to directory name for non-OSGi modules)
         String symbolicNameRaw = headers.get(BUNDLE_SYMBOLIC_NAME);
-        SymbolicNameInfo nameInfo;
+        String symbolicName;
         if (symbolicNameRaw != null && !symbolicNameRaw.isBlank()) {
-            nameInfo = parseSymbolicName(symbolicNameRaw);
+            symbolicName = stripDirectives(symbolicNameRaw);
         } else {
             // Non-OSGi module: use directory name as symbolic name
-            nameInfo = new SymbolicNameInfo();
-            nameInfo.name = bundleDir.getFileName().toString();
-            log.info("No Bundle-SymbolicName found, using directory name: {}", nameInfo.name);
+            symbolicName = bundleDir.getFileName().toString();
+            log.info("No Bundle-SymbolicName found, using directory name: {}", symbolicName);
         }
 
-        // Create bundle
         Bundle bundle = new Bundle(
-            nameInfo.name,
+            symbolicName,
             headers.get(BUNDLE_VERSION),
             bundleDir
         );
-
-        bundle.setSingleton(nameInfo.singleton);
 
         // Parse Main-Class (standalone application entry point)
         String mainClass = headers.get(MAIN_CLASS);
@@ -87,11 +78,6 @@ public class ManifestParser {
             bundle.setMainClass(mainClass.trim());
             log.info("Found standalone app main class: {}", mainClass.trim());
         }
-        bundle.setName(headers.get(BUNDLE_NAME));
-        bundle.setVendor(headers.get(BUNDLE_VENDOR));
-        bundle.setActivator(headers.get(BUNDLE_ACTIVATOR));
-        bundle.setExecutionEnvironment(headers.get(BUNDLE_EXECUTION_ENV));
-        bundle.setActivationPolicy(headers.get(BUNDLE_ACTIVATION_POLICY));
 
         // Parse Bundle-ClassPath
         String classpath = headers.get(BUNDLE_CLASSPATH);
@@ -173,29 +159,12 @@ public class ManifestParser {
     }
 
     /**
-     * Parse Bundle-SymbolicName with directives.
+     * Strip {@code ;directive:=value} clauses from a Bundle-SymbolicName, returning just the
+     * bare symbolic name.
      */
-    private SymbolicNameInfo parseSymbolicName(String raw) {
-        SymbolicNameInfo info = new SymbolicNameInfo();
-
+    private static String stripDirectives(String raw) {
         int semicolon = raw.indexOf(';');
-        if (semicolon > 0) {
-            info.name = raw.substring(0, semicolon).trim();
-            String directives = raw.substring(semicolon);
-
-            Matcher matcher = DIRECTIVE_PATTERN.matcher(directives);
-            while (matcher.find()) {
-                String key = matcher.group(1).trim();
-                String value = extractDirectiveValue(matcher);
-                if ("singleton".equals(key)) {
-                    info.singleton = "true".equalsIgnoreCase(value);
-                }
-            }
-        } else {
-            info.name = raw.trim();
-        }
-
-        return info;
+        return (semicolon > 0 ? raw.substring(0, semicolon) : raw).trim();
     }
 
     /**
@@ -205,12 +174,10 @@ public class ManifestParser {
         String[] entries = classpath.split(",");
         for (String entry : entries) {
             String trimmed = entry.trim();
-            if (".".equals(trimmed)) {
-                bundle.addClasspathEntry(".");
-            } else if (!trimmed.isEmpty()) {
-                bundle.addEmbeddedLibrary(trimmed);
-                bundle.addClasspathEntry(trimmed);
+            if (".".equals(trimmed) || trimmed.isEmpty()) {
+                continue;
             }
+            bundle.addEmbeddedLibrary(trimmed);
         }
     }
 
@@ -407,13 +374,5 @@ public class ManifestParser {
         }
         String unquoted = matcher.group(3);
         return unquoted != null ? unquoted.trim() : "";
-    }
-
-    /**
-     * Helper class for parsed symbolic name.
-     */
-    private static class SymbolicNameInfo {
-        String name;
-        boolean singleton = false;
     }
 }

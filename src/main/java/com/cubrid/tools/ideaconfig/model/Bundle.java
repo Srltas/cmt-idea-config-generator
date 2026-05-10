@@ -15,14 +15,6 @@ public class Bundle {
     private final String version;
     private final Path location;
 
-    private String name;
-    private String vendor;
-    private String activator;
-    private String executionEnvironment;
-    private String activationPolicy;
-    private boolean singleton;
-
-    private final List<String> classpath = new ArrayList<>();
     private final List<BundleRequirement> requiredBundles = new ArrayList<>();
     private final List<PackageImport> importedPackages = new ArrayList<>();
     private final List<String> exportedPackages = new ArrayList<>();
@@ -54,64 +46,6 @@ public class Bundle {
 
     public Path getLocation() {
         return location;
-    }
-
-    public String getName() {
-        return name != null ? name : symbolicName;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getVendor() {
-        return vendor;
-    }
-
-    public void setVendor(String vendor) {
-        this.vendor = vendor;
-    }
-
-    public String getActivator() {
-        return activator;
-    }
-
-    public void setActivator(String activator) {
-        this.activator = activator;
-    }
-
-    public String getExecutionEnvironment() {
-        return executionEnvironment;
-    }
-
-    public void setExecutionEnvironment(String executionEnvironment) {
-        this.executionEnvironment = executionEnvironment;
-    }
-
-    public String getActivationPolicy() {
-        return activationPolicy;
-    }
-
-    public void setActivationPolicy(String activationPolicy) {
-        this.activationPolicy = activationPolicy;
-    }
-
-    public boolean isSingleton() {
-        return singleton;
-    }
-
-    public void setSingleton(boolean singleton) {
-        this.singleton = singleton;
-    }
-
-    public List<String> getClasspath() {
-        return Collections.unmodifiableList(classpath);
-    }
-
-    public void addClasspathEntry(String entry) {
-        if (entry != null && !entry.isBlank()) {
-            classpath.add(entry.trim());
-        }
     }
 
     public List<BundleRequirement> getRequiredBundles() {
