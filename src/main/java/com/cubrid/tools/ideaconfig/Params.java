@@ -3,6 +3,7 @@ package com.cubrid.tools.ideaconfig;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
+import picocli.CommandLine.Parameters;
 
 import java.nio.file.Path;
 
@@ -17,33 +18,18 @@ import java.nio.file.Path;
 )
 public class Params {
 
-    @Option(
-        names = {"-c", "--config"},
-        description = "Path to the configuration properties file (e.g., osgi-app.properties)",
-        required = true
-    )
-    private Path configFile;
-
-    @Option(
-        names = {"-p", "--projects-folder"},
-        description = "Root folder containing the Eclipse RCP projects",
-        required = true
+    @Parameters(
+        index = "0",
+        paramLabel = "<project-dir>",
+        description = "Root folder of the Eclipse RCP project"
     )
     private Path projectsFolder;
 
     @Option(
         names = {"-o", "--output"},
-        description = "Output directory for generated IDEA configuration",
-        required = true
+        description = "Where to write the IDEA project (default: next to <project-dir>)"
     )
     private Path outputDir;
-
-    @Option(
-        names = {"-e", "--eclipse"},
-        description = "Use an existing bundle folder as-is instead of provisioning one "
-                + "(default: <projects-folder>/../workspace/dependencies, filled from the Maven p2 cache)"
-    )
-    private Path eclipseDepsDir;
 
     @Option(
         names = {"-m", "--maven-repo"},
@@ -65,21 +51,16 @@ public class Params {
     )
     private boolean dryRun;
 
-    public Path getConfigFile() {
-        return configFile;
-    }
-
     public Path getProjectsFolder() {
-        return projectsFolder;
+        return projectsFolder.toAbsolutePath().normalize();
     }
 
+    /** Defaults to the parent of the project folder, so the IDEA project sits beside it. */
     public Path getOutputDir() {
-        return outputDir;
-    }
-
-    /** True when the user pointed at their own bundle folder, which must be left untouched. */
-    public boolean isEclipseDepsDirExplicit() {
-        return eclipseDepsDir != null;
+        if (outputDir != null) {
+            return outputDir.toAbsolutePath().normalize();
+        }
+        return parentOf(getProjectsFolder());
     }
 
     public Path getMavenRepo() {
@@ -89,17 +70,14 @@ public class Params {
         return Path.of(System.getProperty("user.home"), ".m2", "repository");
     }
 
+    /** Bundle folder filled from the p2 cache: {@code <project-dir>/../workspace/dependencies}. */
     public Path getEclipseDepsDir() {
-        if (eclipseDepsDir != null) {
-            return eclipseDepsDir.toAbsolutePath().normalize();
-        }
-        // Default: <projects-folder>/../workspace/dependencies
-        Path absProjectsFolder = projectsFolder.toAbsolutePath().normalize();
-        Path parent = absProjectsFolder.getParent();
-        if (parent == null) {
-            parent = absProjectsFolder;
-        }
-        return parent.resolve("workspace").resolve("dependencies");
+        return parentOf(getProjectsFolder()).resolve("workspace").resolve("dependencies");
+    }
+
+    private static Path parentOf(Path path) {
+        Path parent = path.getParent();
+        return parent != null ? parent : path;
     }
 
     public boolean isDebug() {
@@ -141,9 +119,8 @@ public class Params {
     @Override
     public String toString() {
         return "Params{" +
-                "configFile=" + configFile +
-                ", projectsFolder=" + projectsFolder +
-                ", outputDir=" + outputDir +
+                "projectsFolder=" + getProjectsFolder() +
+                ", outputDir=" + getOutputDir() +
                 ", eclipseDepsDir=" + getEclipseDepsDir() +
                 ", mavenRepo=" + getMavenRepo() +
                 ", debug=" + debug +

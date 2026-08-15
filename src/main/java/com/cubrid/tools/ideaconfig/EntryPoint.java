@@ -2,7 +2,6 @@ package com.cubrid.tools.ideaconfig;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
-import com.cubrid.tools.ideaconfig.config.ConfigLoader;
 import com.cubrid.tools.ideaconfig.config.PathsManager;
 import com.cubrid.tools.ideaconfig.config.ProjectConfig;
 import com.cubrid.tools.ideaconfig.eclipse.BuildPropertiesParser;
@@ -80,7 +79,7 @@ public class EntryPoint {
             log.info("CMT IDEA Config Generator");
             log.info("=".repeat(60));
 
-            loadConfiguration();
+            discoverProjectLayout();
             initializePaths();
             provisionEclipseDependencies();
             discoverArtifacts();
@@ -115,23 +114,13 @@ public class EntryPoint {
         }
     }
 
-    private void loadConfiguration() throws Exception {
-        log.info("Loading configuration...");
-        log.info("  Config file: {}", params.getConfigFile());
+    private void discoverProjectLayout() throws Exception {
+        log.info("Discovering project layout...");
         log.info("  Projects folder: {}", params.getProjectsFolder());
         log.info("  Output directory: {}", params.getOutputDir());
 
-        config = new ConfigLoader().load(params.getConfigFile());
-        config.setProjectsFolder(params.getProjectsFolder());
-        config.setOutputDir(params.getOutputDir());
-        config.setEclipseDepsDir(params.getEclipseDepsDir());
+        config = ProjectConfig.discover(params.getProjectsFolder());
         config.validate();
-
-        log.info("  Workspace name: {}", config.getWorkspaceName());
-        log.info("  Bundle paths: {}", config.getBundlesPaths().size());
-        log.info("  Feature paths: {}", config.getFeaturesPaths().size());
-        log.info("  Products: {}", config.getProductsPaths().size());
-        log.info("  Test modules: {}", config.getTestModuleRoots().size());
     }
 
     private void initializePaths() throws Exception {
@@ -148,29 +137,13 @@ public class EntryPoint {
         }
     }
 
-    /**
-     * Fill the Eclipse dependency folder from Tycho's p2 cache. Skipped when the user
-     * pointed at their own folder with {@code -e}.
-     */
+    /** Fill the Eclipse dependency folder from Tycho's p2 cache. */
     private void provisionEclipseDependencies() throws Exception {
         Path depsDir = params.getEclipseDepsDir();
 
-        if (params.isEclipseDepsDirExplicit()) {
-            log.info("Using the given bundle folder as-is: {}", depsDir);
-            return;
-        }
-
         P2Provisioner provisioner = new P2Provisioner(params.getMavenRepo(), depsDir);
         if (!provisioner.isCacheAvailable()) {
-            throw new ProjectConfig.ConfigurationException(
-                    "The target platform is not in the local Maven repository yet: "
-                            + provisioner.getP2BundleDir()
-                            + System.lineSeparator()
-                            + "  Build the project once so Tycho downloads it:"
-                            + System.lineSeparator()
-                            + "    mvn -f " + params.getProjectsFolder() + " package -DskipTests"
-                            + System.lineSeparator()
-                            + "  Or pass -e to use a bundle folder you prepared yourself.");
+            throw new ProjectConfig.ConfigurationException(buildMissingCacheMessage(provisioner));
         }
 
         log.info("Provisioning Eclipse dependencies into {}", depsDir);
@@ -209,6 +182,14 @@ public class EntryPoint {
                 return;
             }
         }
+    }
+
+    private String buildMissingCacheMessage(P2Provisioner provisioner) {
+        return "The target platform is not in the local Maven repository yet: " + provisioner.getP2BundleDir()
+                + System.lineSeparator()
+                + "  Build the project once so Tycho downloads it:"
+                + System.lineSeparator()
+                + "    mvn -f " + params.getProjectsFolder() + " package -DskipTests";
     }
 
     private void discoverArtifacts() throws Exception {

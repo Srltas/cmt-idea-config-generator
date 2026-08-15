@@ -1,7 +1,6 @@
 package com.cubrid.tools.ideaconfig;
 
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 
@@ -9,32 +8,46 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ParamsTest {
 
-    @TempDir
-    Path tempDir;
-
     @Test
-    void testParseRequiredArgs() {
-        String[] args = {
-            "-c", "/path/to/config.properties",
-            "-p", "/path/to/projects",
-            "-o", "/path/to/output"
-        };
-
-        Params params = Params.parse(args);
+    void takesTheProjectFolderAsThePositionalArgument() {
+        Params params = Params.parse(new String[] {"/path/to/projects"});
 
         assertThat(params).isNotNull();
-        assertThat(params.getConfigFile()).isEqualTo(Path.of("/path/to/config.properties"));
         assertThat(params.getProjectsFolder()).isEqualTo(Path.of("/path/to/projects"));
-        assertThat(params.getOutputDir()).isEqualTo(Path.of("/path/to/output"));
     }
 
     @Test
-    void testParseWithOptionalArgs() {
+    void defaultsOutputNextToTheProjectFolder() {
+        Params params = Params.parse(new String[] {"/path/to/projects"});
+
+        assertThat(params).isNotNull();
+        assertThat(params.getOutputDir()).isEqualTo(Path.of("/path/to"));
+    }
+
+    @Test
+    void defaultsTheBundleFolderBesideTheProject() {
+        Params params = Params.parse(new String[] {"/path/to/projects"});
+
+        assertThat(params).isNotNull();
+        assertThat(params.getEclipseDepsDir())
+                .isEqualTo(Path.of("/path/to/workspace/dependencies"));
+    }
+
+    @Test
+    void defaultsTheMavenRepoToTheUserHome() {
+        Params params = Params.parse(new String[] {"/path/to/projects"});
+
+        assertThat(params).isNotNull();
+        assertThat(params.getMavenRepo())
+                .isEqualTo(Path.of(System.getProperty("user.home"), ".m2", "repository"));
+    }
+
+    @Test
+    void acceptsExplicitOverrides() {
         String[] args = {
-            "--config", "/path/to/config.properties",
-            "--projects-folder", "/path/to/projects",
+            "/path/to/projects",
             "--output", "/path/to/output",
-            "--eclipse", "/path/to/eclipse-deps",
+            "--maven-repo", "/opt/m2",
             "--debug",
             "--dry-run"
         };
@@ -42,44 +55,19 @@ class ParamsTest {
         Params params = Params.parse(args);
 
         assertThat(params).isNotNull();
-        assertThat(params.getEclipseDepsDir()).isEqualTo(Path.of("/path/to/eclipse-deps"));
+        assertThat(params.getOutputDir()).isEqualTo(Path.of("/path/to/output"));
+        assertThat(params.getMavenRepo()).isEqualTo(Path.of("/opt/m2"));
         assertThat(params.isDebug()).isTrue();
         assertThat(params.isDryRun()).isTrue();
     }
 
     @Test
-    void testDefaultEclipseDepsDir() {
-        String[] args = {
-            "-c", "/path/to/config.properties",
-            "-p", "/path/to/projects",
-            "-o", "/path/to/output"
-        };
-
-        Params params = Params.parse(args);
-
-        assertThat(params).isNotNull();
-        // Default should be <projects-folder>/../workspace/dependencies
-        assertThat(params.getEclipseDepsDir())
-            .isEqualTo(Path.of("/path/to/workspace/dependencies"));
+    void returnsNullForHelp() {
+        assertThat(Params.parse(new String[] {"--help"})).isNull();
     }
 
     @Test
-    void testParseHelp() {
-        String[] args = {"--help"};
-
-        Params params = Params.parse(args);
-
-        // When help is requested, parse returns null
-        assertThat(params).isNull();
-    }
-
-    @Test
-    void testParseMissingRequired() {
-        String[] args = {"-c", "/path/to/config.properties"};
-
-        Params params = Params.parse(args);
-
-        // When required args are missing, parse returns null
-        assertThat(params).isNull();
+    void returnsNullWhenTheProjectFolderIsMissing() {
+        assertThat(Params.parse(new String[] {"--debug"})).isNull();
     }
 }
