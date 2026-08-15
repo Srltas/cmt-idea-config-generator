@@ -77,19 +77,33 @@ public class RunConfigProducer {
 
         // Generate Desktop (OSGi) run configurations
         for (Product product : products) {
-            generateRunConfig(product, bundles);
+            generateRunConfig(product, bundles, products.size() > 1);
             count++;
         }
 
         // Generate Console (standalone) run configurations
-        for (Bundle bundle : bundles) {
-            if (bundle.isStandaloneApp()) {
-                generateConsoleRunConfig(bundle);
-                count++;
-            }
+        List<Bundle> consoleApps = bundles.stream().filter(Bundle::isStandaloneApp).toList();
+        for (Bundle bundle : consoleApps) {
+            generateConsoleRunConfig(bundle, consoleApps.size() > 1);
+            count++;
         }
 
         log.info("Generated {} run configurations in {}", count, runConfigDir);
+    }
+
+    /**
+     * Name for a run configuration. A single product or console app keeps the plain name;
+     * with more than one, the identifier is appended so they do not overwrite each other.
+     */
+    private static String configName(String base, String identifier, boolean qualify) {
+        return qualify && identifier != null && !identifier.isBlank()
+                ? base + " (" + identifier + ")"
+                : base;
+    }
+
+    /** IDEA stores run configurations by file name, so keep it to safe characters. */
+    private static String toFileName(String configName) {
+        return configName.replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
     /**
@@ -97,13 +111,13 @@ public class RunConfigProducer {
      *
      * @param product the product
      * @param bundles the local bundles
+     * @param qualify append the product id to the name, for projects with several products
      * @throws IOException if file writing fails
      */
-    public void generateRunConfig(Product product, List<Bundle> bundles) throws IOException {
-        // Use fixed name for Desktop run configuration
-        String configName = "CMT Desktop";
-        String safeFileName = "CMT_Desktop";
-        Path configFile = runConfigDir.resolve(safeFileName + ".xml");
+    private void generateRunConfig(Product product, List<Bundle> bundles, boolean qualify)
+            throws IOException {
+        String configName = configName("CMT Desktop", product.getId(), qualify);
+        Path configFile = runConfigDir.resolve(toFileName(configName) + ".xml");
 
         log.info("Generating Desktop run configuration: {}", configName);
 
@@ -171,12 +185,13 @@ public class RunConfigProducer {
      * Generate a run configuration for a standalone (non-OSGi) console application.
      *
      * @param consoleBundle the bundle with Main-Class
+     * @param qualify append the bundle name, for projects with several console apps
      * @throws IOException if file writing fails
      */
-    public void generateConsoleRunConfig(Bundle consoleBundle) throws IOException {
-        String configName = "CMT Console";
-        String safeFileName = "CMT_Console";
-        Path configFile = runConfigDir.resolve(safeFileName + ".xml");
+    private void generateConsoleRunConfig(Bundle consoleBundle, boolean qualify) throws IOException {
+        String configName =
+                configName("CMT Console", consoleBundle.getSymbolicName(), qualify);
+        Path configFile = runConfigDir.resolve(toFileName(configName) + ".xml");
 
         log.info("Generating Console run configuration: {} (main: {})",
             configName, consoleBundle.getMainClass());
@@ -241,11 +256,9 @@ public class RunConfigProducer {
         // Development mode - use file: protocol
         sb.append("-Dosgi.dev=file:$PROJECT_DIR$/runtime/dev.properties ");
 
-        // Instance area
-        sb.append("-Dosgi.instance.area=$PROJECT_DIR$/runtime/workspace ");
-
-        // Install area - Eclipse expects plugins to be in {install.area}/plugins/
-        // So we set install.area to the PARENT of the plugins folder
+        // Install area - the parent of the bundle folder. Bundles themselves are found
+        // through the absolute paths in bundles.info, but CMT derives its own runtime
+        // directories from this location (jdbc/ for drivers, handlers/).
         if (eclipseDepsDir != null) {
             Path installArea = eclipseDepsDir.getParent();
             if (installArea != null) {
@@ -287,7 +300,9 @@ public class RunConfigProducer {
         // Configuration area
         sb.append("-configuration $PROJECT_DIR$/runtime/configuration ");
 
-        // Data location
+        // No instance area up front, exactly like the shipped product: the CMT
+        // application picks one itself in Application.initPaths(), and pre-setting it
+        // would make that call fail.
         sb.append("-data @noDefault ");
 
         // Product-specific program args
@@ -499,15 +514,14 @@ public class RunConfigProducer {
             // Directory URIs end with / to indicate directory
             String location = PathHelper.toFileUri(bundleLocation);
 
-            // Application bundles need to start
-            int startLevel = 4;
-            boolean autoStart = symbolicName.contains(".app") || symbolicName.equals("com.cubrid.cubridmigration.ui");
-
+            // Same flags the shipped product uses: the application bundle is activated
+            // by eclipse.application, so autostarting it here would run activators
+            // before the launcher has set up the instance location.
             sb.append(symbolicName).append(",")
               .append(version).append(",")
               .append(location).append(",")
-              .append(startLevel).append(",")
-              .append(autoStart).append("\n");
+              .append(DEFAULT_START_CONFIG.level()).append(",")
+              .append(DEFAULT_START_CONFIG.autoStart()).append("\n");
         }
 
         // Add Eclipse dependencies
