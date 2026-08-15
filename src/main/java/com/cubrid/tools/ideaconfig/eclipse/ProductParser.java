@@ -29,15 +29,14 @@ public class ProductParser {
                 throw new IOException("Invalid product file: root element is not 'product'");
             }
 
-            String uid = root.getAttribute("uid");
+            // 'id' is what ends up in config.ini as eclipse.product.
             String id = root.getAttribute("id");
-            if ((uid == null || uid.isBlank()) && (id == null || id.isBlank())) {
-                throw new IOException("Missing 'uid' or 'id' attribute in product file: " + productFile);
+            if (id == null || id.isBlank()) {
+                throw new IOException("Missing 'id' attribute in product file: " + productFile);
             }
 
-            Product product = new Product(uid, id, productFile.getParent());
+            Product product = new Product(id);
             product.setName(root.getAttribute("name"));
-            product.setVersion(root.getAttribute("version"));
             product.setApplication(root.getAttribute("application"));
 
             XmlHelper.getChildElement(root, "launcherArgs").ifPresent(args -> {

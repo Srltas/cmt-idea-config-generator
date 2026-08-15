@@ -449,10 +449,6 @@ public class DependencyGraph {
             return bundleName;
         }
 
-        public String getDependencyName() {
-            return dependencyName;
-        }
-
         public String getVersionRange() {
             return versionRange;
         }

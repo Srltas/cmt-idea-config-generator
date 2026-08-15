@@ -12,39 +12,17 @@ import java.util.Objects;
 public class Feature {
 
     private final String id;
-    private final String version;
-    private final Path location;
-
-    private String label;
 
     private final List<PluginReference> plugins = new ArrayList<>();
     private final List<FeatureReference> includedFeatures = new ArrayList<>();
     private final List<PluginImport> requiredPlugins = new ArrayList<>();
 
-    public Feature(String id, String version, Path location) {
+    public Feature(String id) {
         this.id = Objects.requireNonNull(id, "id is required");
-        this.version = version != null ? version : "0.0.0";
-        this.location = location;
     }
 
     public String getId() {
         return id;
-    }
-
-    public String getVersion() {
-        return version;
-    }
-
-    public Path getLocation() {
-        return location;
-    }
-
-    public String getLabel() {
-        return label != null ? label : id;
-    }
-
-    public void setLabel(String label) {
-        this.label = label;
     }
 
     public List<PluginReference> getPlugins() {
@@ -82,19 +60,18 @@ public class Feature {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Feature feature = (Feature) o;
-        return id.equals(feature.id) && version.equals(feature.version);
+        return id.equals(feature.id);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, version);
+        return Objects.hash(id);
     }
 
     @Override
     public String toString() {
         return "Feature{" +
                 "id='" + id + '\'' +
-                ", version='" + version + '\'' +
                 ", plugins=" + plugins.size() +
                 ", includedFeatures=" + includedFeatures.size() +
                 '}';

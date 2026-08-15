@@ -1,6 +1,5 @@
 package com.cubrid.tools.ideaconfig.model;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -11,12 +10,9 @@ import java.util.Objects;
  */
 public class Product {
 
-    private final String uid;
     private final String id;
-    private final Path location;
 
     private String name;
-    private String version;
     private String application;
 
     private String vmArgs;
@@ -29,22 +25,12 @@ public class Product {
     private final List<String> featureIds = new ArrayList<>();
     private final List<String> pluginIds = new ArrayList<>();
 
-    public Product(String uid, String id, Path location) {
-        this.uid = uid != null ? uid : id;
+    public Product(String id) {
         this.id = Objects.requireNonNull(id, "id is required");
-        this.location = location;
-    }
-
-    public String getUid() {
-        return uid;
     }
 
     public String getId() {
         return id;
-    }
-
-    public Path getLocation() {
-        return location;
     }
 
     public String getName() {
@@ -53,14 +39,6 @@ public class Product {
 
     public void setName(String name) {
         this.name = name;
-    }
-
-    public String getVersion() {
-        return version;
-    }
-
-    public void setVersion(String version) {
-        this.version = version;
     }
 
     public String getApplication() {
@@ -141,18 +119,18 @@ public class Product {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         Product product = (Product) o;
-        return uid.equals(product.uid);
+        return id.equals(product.id);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(uid);
+        return Objects.hash(id);
     }
 
     @Override
     public String toString() {
         return "Product{" +
-                "uid='" + uid + '\'' +
+                "id='" + id + '\'' +
                 ", name='" + name + '\'' +
                 ", application='" + application + '\'' +
                 ", features=" + featureIds.size() +

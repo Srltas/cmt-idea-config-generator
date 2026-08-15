@@ -14,7 +14,6 @@ import org.xml.sax.SAXException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 
 /**
  * Parser for Eclipse feature.xml files.
@@ -47,8 +46,7 @@ public class FeatureParser {
                 throw new IOException("Missing 'id' attribute in feature.xml: " + featureFile);
             }
 
-            Feature feature = new Feature(id, root.getAttribute("version"), featureDir);
-            feature.setLabel(root.getAttribute("label"));
+            Feature feature = new Feature(id);
 
             for (Element include : XmlHelper.getChildElements(root, "includes")) {
                 FeatureReference ref = parseInclude(include);

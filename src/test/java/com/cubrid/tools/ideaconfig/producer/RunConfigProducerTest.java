@@ -51,7 +51,7 @@ class RunConfigProducerTest {
     }
 
     private static Product product(String id) {
-        Product product = new Product(id, id, Path.of("/tmp", id));
+        Product product = new Product(id);
         product.setApplication(id + ".application");
         return product;
     }

@@ -1,6 +1,5 @@
 package com.cubrid.tools.ideaconfig.producer;
 
-import com.cubrid.tools.ideaconfig.model.DependencyGraph;
 import com.cubrid.tools.ideaconfig.model.DependencyGraph.ExternalBundle;
 import com.cubrid.tools.ideaconfig.util.XmlHelper;
 import org.slf4j.Logger;
