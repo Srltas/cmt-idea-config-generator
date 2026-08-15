@@ -20,12 +20,16 @@ import com.cubrid.tools.ideaconfig.producer.IMLProducer;
 import com.cubrid.tools.ideaconfig.producer.LibraryProducer;
 import com.cubrid.tools.ideaconfig.producer.ModulesXmlProducer;
 import com.cubrid.tools.ideaconfig.producer.RunConfigProducer;
+import com.cubrid.tools.ideaconfig.provision.P2Provisioner;
 import com.cubrid.tools.ideaconfig.resolver.BundleResolver;
 import com.cubrid.tools.ideaconfig.resolver.FeatureResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -78,6 +82,7 @@ public class EntryPoint {
 
             loadConfiguration();
             initializePaths();
+            provisionEclipseDependencies();
             discoverArtifacts();
             resolveDependencies();
             discoverTestModules();
@@ -140,6 +145,69 @@ public class EntryPoint {
         pathsManager.initialize();
         if (!params.isDryRun()) {
             pathsManager.createOutputDirectories();
+        }
+    }
+
+    /**
+     * Fill the Eclipse dependency folder from Tycho's p2 cache. Skipped when the user
+     * pointed at their own folder with {@code -e}.
+     */
+    private void provisionEclipseDependencies() throws Exception {
+        Path depsDir = params.getEclipseDepsDir();
+
+        if (params.isEclipseDepsDirExplicit()) {
+            log.info("Using the given bundle folder as-is: {}", depsDir);
+            return;
+        }
+
+        P2Provisioner provisioner = new P2Provisioner(params.getMavenRepo(), depsDir);
+        if (!provisioner.isCacheAvailable()) {
+            throw new ProjectConfig.ConfigurationException(
+                    "The target platform is not in the local Maven repository yet: "
+                            + provisioner.getP2BundleDir()
+                            + System.lineSeparator()
+                            + "  Build the project once so Tycho downloads it:"
+                            + System.lineSeparator()
+                            + "    mvn -f " + params.getProjectsFolder() + " package -DskipTests"
+                            + System.lineSeparator()
+                            + "  Or pass -e to use a bundle folder you prepared yourself.");
+        }
+
+        log.info("Provisioning Eclipse dependencies into {}", depsDir);
+        if (params.isDryRun()) {
+            log.info("Dry run mode - skipping provisioning");
+            return;
+        }
+
+        provisioner.provision();
+
+        if (!provisioner.hasOsgiFramework()) {
+            throw new ProjectConfig.ConfigurationException(
+                    "No OSGi framework (org.eclipse.osgi) in " + depsDir
+                            + System.lineSeparator()
+                            + "  The p2 cache at " + provisioner.getP2BundleDir() + " looks incomplete."
+                            + System.lineSeparator()
+                            + "  Build the project once so Tycho downloads the full target platform:"
+                            + System.lineSeparator()
+                            + "    mvn -f " + params.getProjectsFolder() + " package -DskipTests");
+        }
+    }
+
+    /**
+     * Resources a bundle keeps at its root are on its bundle class path in OSGi mode, but
+     * the Console run configuration is a plain Java launch that reads them from its working
+     * directory instead. Put a copy there so both modes find them.
+     */
+    private void copyWorkingDirResources(List<Bundle> bundles, Path workingDir) throws IOException {
+        for (Bundle bundle : bundles) {
+            Path logback = bundle.getLocation().resolve("logback.xml");
+            if (Files.isRegularFile(logback)) {
+                Files.copy(logback, workingDir.resolve("logback.xml"),
+                        StandardCopyOption.REPLACE_EXISTING);
+                log.info("Copied logback.xml from {} into the working directory",
+                        bundle.getSymbolicName());
+                return;
+            }
         }
     }
 
@@ -289,6 +357,8 @@ public class EntryPoint {
             pathsManager.getEclipseDepsDir()
         );
         runConfigProducer.generateAll(products, orderedBundles);
+
+        copyWorkingDirResources(orderedBundles, pathsManager.getWorkspaceDir());
 
         Path runtimeDir = pathsManager.getWorkspaceDir().resolve("runtime");
         runConfigProducer.generateDevProperties(orderedBundles, runtimeDir);

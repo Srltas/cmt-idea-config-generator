@@ -40,9 +40,16 @@ public class Params {
 
     @Option(
         names = {"-e", "--eclipse"},
-        description = "Eclipse dependencies folder (default: <projects-folder>/../workspace/dependencies)"
+        description = "Use an existing bundle folder as-is instead of provisioning one "
+                + "(default: <projects-folder>/../workspace/dependencies, filled from the Maven p2 cache)"
     )
     private Path eclipseDepsDir;
+
+    @Option(
+        names = {"-m", "--maven-repo"},
+        description = "Local Maven repository holding Tycho's p2 cache (default: <user.home>/.m2/repository)"
+    )
+    private Path mavenRepo;
 
     @Option(
         names = {"-d", "--debug"},
@@ -68,6 +75,18 @@ public class Params {
 
     public Path getOutputDir() {
         return outputDir;
+    }
+
+    /** True when the user pointed at their own bundle folder, which must be left untouched. */
+    public boolean isEclipseDepsDirExplicit() {
+        return eclipseDepsDir != null;
+    }
+
+    public Path getMavenRepo() {
+        if (mavenRepo != null) {
+            return mavenRepo.toAbsolutePath().normalize();
+        }
+        return Path.of(System.getProperty("user.home"), ".m2", "repository");
     }
 
     public Path getEclipseDepsDir() {
@@ -126,6 +145,7 @@ public class Params {
                 ", projectsFolder=" + projectsFolder +
                 ", outputDir=" + outputDir +
                 ", eclipseDepsDir=" + getEclipseDepsDir() +
+                ", mavenRepo=" + getMavenRepo() +
                 ", debug=" + debug +
                 ", dryRun=" + dryRun +
                 '}';
